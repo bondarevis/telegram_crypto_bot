@@ -2,8 +2,8 @@ import telebot
 import requests
 import datetime
 
-TOKEN = "YOUR_BOT_TOKEN"
-CHANNEL_ID = "@YOUR_CHANNEL_NAME"
+TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
+CHANNEL_ID = "@Digital_Fund_1E"
 
 bot = telebot.TeleBot(TOKEN)
 
