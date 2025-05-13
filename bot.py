@@ -3,7 +3,7 @@ import requests
 import datetime
 
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
-CHANNEL_ID = "@Digital_Fund_1E"
+CHANNEL_ID = "@Digital_Fund_1"
 
 bot = telebot.TeleBot(TOKEN)
 
