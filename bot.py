@@ -5,59 +5,83 @@ import datetime
 import schedule
 import time
 import threading
+from bs4 import BeautifulSoup
 
 # Настройки
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
+CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 
 bot = telebot.TeleBot(TOKEN)
 
 # Получение данных с CoinGecko
-def fetch_market_summary():
+def fetch_coingecko():
     try:
         url = "https://api.coingecko.com/api/v3/global"
         response = requests.get(url)
         data = response.json()
-
         btc_dominance = round(data["data"]["market_cap_percentage"]["btc"], 2)
-        eth_dominance = round(data["data"]["market_cap_percentage"]["eth"], 2)
         total_market_cap = round(data["data"]["total_market_cap"]["usd"] / 1e9, 2)
         market_change = round(data["data"]["market_cap_change_percentage_24h_usd"], 2)
 
-        summary = (
-            f"**Сводка рынка на {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}**\n\n"
-            f"- Общая капитализация: ${total_market_cap} млрд\n"
-            f"- Доля BTC: {btc_dominance}%\n"
-            f"- Доля ETH: {eth_dominance}%\n"
-            f"- Изменение за 24ч: {market_change}%\n\n"
-            f"#Крипторынок #Обзор #Bitcoin #Ethereum"
-        )
+        return f"CoinGecko: Капитализация ${total_market_cap}B | BTC домин. {btc_dominance}% | Изм. 24ч: {market_change}%"
+    except:
+        return "CoinGecko: ошибка получения данных."
 
-        return summary
-    except Exception as e:
-        return f"Ошибка при получении данных: {str(e)}"
+# Получение данных с CoinMarketCap
+def fetch_cmc():
+    try:
+        headers = {
+            "X-CMC_PRO_API_KEY": CMC_API_KEY
+        }
+        url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
+        response = requests.get(url, headers=headers)
+        data = response.json()["data"]
+        btc_dominance = round(data["btc_dominance"], 2)
+        total_market_cap = round(data["quote"]["USD"]["total_market_cap"] / 1e9, 2)
+        market_change = round(data["quote"]["USD"]["total_market_cap_yesterday_percentage_change"], 2)
 
-# Отправка поста в канал
+        return f"CoinMarketCap: Капитализация ${total_market_cap}B | BTC домин. {btc_dominance}% | Изм. вч.: {market_change}%"
+    except:
+        return "CoinMarketCap: ошибка получения данных."
+
+# Парсинг RBK Crypto
+def fetch_rbk_crypto():
+    try:
+        url = "https://www.rbc.ru/crypto/"
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        headlines = soup.select(".item__title")[:1]
+        if headlines:
+            return f"RBK Crypto: {headlines[0].text.strip()}"
+        return "RBK Crypto: нет свежих новостей."
+    except:
+        return "RBK Crypto: ошибка парсинга."
+
+# Компиляция поста
+def generate_post():
+    now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+    parts = [fetch_coingecko(), fetch_cmc(), fetch_rbk_crypto()]
+    return f"**Обзор крипторынка на {now}**\n\n" + "\n".join(parts) + "\n\n#crypto #новости"
+
+# Отправка поста
 def send_market_update():
-    summary = fetch_market_summary()
+    summary = generate_post()
     bot.send_message(CHANNEL_ID, summary, parse_mode="Markdown")
 
-# Запланировать посты с 08:00 до 22:00 каждый час
+# Планировщик
 def schedule_posts():
     for hour in range(8, 23):
         schedule.every().day.at(f"{hour:02d}:00").do(send_market_update)
-
     while True:
         schedule.run_pending()
         time.sleep(60)
 
-# Запуск планировщика в отдельном потоке
+# Запуск
 threading.Thread(target=schedule_posts).start()
 
-# Ожидание команд
 @bot.message_handler(commands=['start'])
 def start_message(message):
-    bot.reply_to(message, "Бот активен и будет публиковать посты каждый час с 08:00 до 22:00.")
+    bot.reply_to(message, "Бот активен и будет публиковать новости каждый час с 08:00 до 22:00.")
 
 bot.infinity_polling()
-
