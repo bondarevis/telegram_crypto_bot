@@ -1,4 +1,3 @@
-
 import telebot
 import requests
 import datetime
@@ -8,9 +7,9 @@ import threading
 from bs4 import BeautifulSoup
 
 # Настройки
-TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
-CHANNEL_ID = "@Digital_Fund_1"
-CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
+TOKEN = "YOUR_BOT_TOKEN"
+CHANNEL_ID = "@YOUR_CHANNEL_NAME"
+CMC_API_KEY = "YOUR_CMC_API_KEY"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -23,7 +22,6 @@ def fetch_coingecko():
         btc_dominance = round(data["data"]["market_cap_percentage"]["btc"], 2)
         total_market_cap = round(data["data"]["total_market_cap"]["usd"] / 1e9, 2)
         market_change = round(data["data"]["market_cap_change_percentage_24h_usd"], 2)
-
         return f"CoinGecko: Капитализация ${total_market_cap}B | BTC домин. {btc_dominance}% | Изм. 24ч: {market_change}%"
     except:
         return "CoinGecko: ошибка получения данных."
@@ -31,16 +29,13 @@ def fetch_coingecko():
 # Получение данных с CoinMarketCap
 def fetch_cmc():
     try:
-        headers = {
-            "X-CMC_PRO_API_KEY": CMC_API_KEY
-        }
+        headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
         url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
         response = requests.get(url, headers=headers)
         data = response.json()["data"]
         btc_dominance = round(data["btc_dominance"], 2)
         total_market_cap = round(data["quote"]["USD"]["total_market_cap"] / 1e9, 2)
         market_change = round(data["quote"]["USD"]["total_market_cap_yesterday_percentage_change"], 2)
-
         return f"CoinMarketCap: Капитализация ${total_market_cap}B | BTC домин. {btc_dominance}% | Изм. вч.: {market_change}%"
     except:
         return "CoinMarketCap: ошибка получения данных."
@@ -52,9 +47,7 @@ def fetch_rbk_crypto():
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
         headlines = soup.select(".item__title")[:1]
-        if headlines:
-            return f"RBK Crypto: {headlines[0].text.strip()}"
-        return "RBK Crypto: нет свежих новостей."
+        return f"RBK Crypto: {headlines[0].text.strip()}" if headlines else "RBK Crypto: нет свежих новостей."
     except:
         return "RBK Crypto: ошибка парсинга."
 
@@ -66,8 +59,11 @@ def generate_post():
 
 # Отправка поста
 def send_market_update():
-    summary = generate_post()
-    bot.send_message(CHANNEL_ID, summary, parse_mode="Markdown")
+    try:
+        summary = generate_post()
+        bot.send_message(CHANNEL_ID, summary, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Ошибка отправки: {e}")
 
 # Планировщик
 def schedule_posts():
@@ -77,11 +73,23 @@ def schedule_posts():
         schedule.run_pending()
         time.sleep(60)
 
-# Запуск
-threading.Thread(target=schedule_posts).start()
+# Обработчик ошибок и перезапуска
+def run_bot():
+    bot.remove_webhook()
+    while True:
+        try:
+            print("Бот запущен...")
+            bot.infinity_polling()
+        except telebot.apihelper.ApiTelegramException as e:
+            if "Conflict" in str(e):
+                print(f"Обнаружен конфликт: {e}. Перезапуск через 10 секунд...")
+                time.sleep(10)
+            else:
+                raise e
+        except Exception as e:
+            print(f"Критическая ошибка: {e}. Перезапуск через 30 секунд...")
+            time.sleep(30)
 
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    bot.reply_to(message, "Бот активен и будет публиковать новости каждый час с 08:00 до 22:00.")
-
-bot.infinity_polling()
+if __name__ == "__main__":
+    threading.Thread(target=schedule_posts, daemon=True).start()
+    run_bot()
