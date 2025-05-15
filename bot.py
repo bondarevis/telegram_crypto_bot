@@ -7,9 +7,9 @@ import threading
 from bs4 import BeautifulSoup
 
 # Настройки
-TOKEN = "YOUR_BOT_TOKEN"
-CHANNEL_ID = "@YOUR_CHANNEL_NAME"
-CMC_API_KEY = "YOUR_CMC_API_KEY"
+TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
+CHANNEL_ID = "@Digital_Fund_1"
+CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 
 bot = telebot.TeleBot(TOKEN)
 
