@@ -28,9 +28,9 @@ except socket.error:
     logger.error("Обнаружен уже запущенный экземпляр бота!")
     exit(1)
 
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHANNEL_ID = "@Your_Channel_Name"
-CMC_API_KEY = "YOUR_CMC_API_KEY"
+TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
+CHANNEL_ID = "@Digital_Fund_1"
+CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 REQUEST_TIMEOUT = 15
 
 bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
