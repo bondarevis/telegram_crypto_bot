@@ -75,7 +75,7 @@ def fetch_rbk_crypto():
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
         headlines = [h.text.strip() for h in soup.select('.item__title')[:3]]
-        return "📰 RBK Crypto:"
+        return "📰 RBK Crypto":
 " + "\n".join(f"• {h}" for h in headlines)
     except Exception as e:
         logger.error(f"RBK error: {e}")
