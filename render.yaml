@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: crypto-bot   # Название сервиса в Render
+    runtime: python    # Используемый язык
+    buildCommand: pip install -r requirements.txt  # Команда для установки зависимостей
+    startCommand: gunicorn app:app   # Команда запуска (Flask + бот)
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: ваш_токен_бота  # Получить у @BotFather
+      - key: TELEGRAM_CHANNEL
+        value: "@ваш_канал"    # Например, "@crypto_news_2025"
+      - key: CMC_API_KEY
+        value: ваш_api_ключ    # Ключ от CoinMarketCap
+      - key: PORT
+        value: 10000           # Порт для веб-сервера
