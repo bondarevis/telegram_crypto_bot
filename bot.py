@@ -28,8 +28,8 @@ if missing_vars:
     exit(1)
 
 # Конфигурация
-TOKEN = os.environ['TELEGRAM_TOKEN']
-CHANNEL_ID = os.environ['TELEGRAM_CHANNEL']
+TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
+CHANNEL_ID = "@Digital_Fund_1"
 REQUEST_TIMEOUT = 15
 PORT = int(os.getenv('PORT', 10000))
 
