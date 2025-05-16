@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Конфигурация
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL')
-CMC_API_KEY = os.getenv('CMC_API_KEY')
+TOKEN = os.getenv('8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk')
+CHANNEL_ID = os.getenv('@Digital_Fund_1')
+CMC_API_KEY = os.getenv('6316a41d-db32-4e49-a2a3-b66b96c663bf')
 REQUEST_TIMEOUT = 15
 PORT = int(os.getenv('PORT', 10000))
 
