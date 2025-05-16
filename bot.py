@@ -1,3 +1,4 @@
+import os
 import telebot
 import requests
 import datetime
@@ -6,34 +7,33 @@ import time
 import threading
 from bs4 import BeautifulSoup
 import random
-import socket
 import logging
+from flask import Flask
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-# Блокировка множественных экземпляров
-try:
-    lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    lock_socket.bind('\0digital_fund_bot_lock')
-except socket.error:
-    logger.error("Обнаружен уже запущенный экземпляр бота!")
-    exit(1)
+# Инициализация Flask
+app = Flask(__name__)
 
-TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
-CHANNEL_ID = "@Digital_Fund_1"
-CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
+# Конфигурация
+TOKEN = os.getenv('TELEGRAM_TOKEN')
+CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL')
+CMC_API_KEY = os.getenv('CMC_API_KEY')
 REQUEST_TIMEOUT = 15
+PORT = int(os.getenv('PORT', 10000))
 
+# Инициализация бота
 bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
+
+@app.route('/')
+def health_check():
+    return "Crypto Bot is Running", 200
 
 def fetch_coingecko():
     try:
@@ -93,21 +93,26 @@ def send_market_update():
 
 def schedule_posts():
     for hour in range(8, 23):
-        schedule.every().day.at(f"{hour}:00").do(send_market_update)
+        schedule.every().day.at(f"{hour:02d}:00").do(send_market_update)  # Исправленный формат времени
+    
     while True:
         schedule.run_pending()
         time.sleep(60)
 
 def run_bot():
     bot.remove_webhook()
-    while True:
-        try:
-            logger.info("Bot started")
-            bot.infinity_polling()
-        except Exception as e:
-            logger.error(f"Error: {e}. Restarting in 30s...")
-            time.sleep(30)
+    bot.infinity_polling(none_stop=True, timeout=30)
 
 if __name__ == "__main__":
-    threading.Thread(target=schedule_posts, daemon=True).start()
+    # Запуск планировщика в отдельном потоке
+    scheduler_thread = threading.Thread(target=schedule_posts, daemon=True)
+    scheduler_thread.start()
+    
+    # Запуск Flask-сервера
+    threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=PORT),
+        daemon=True
+    ).start()
+    
+    # Запуск бота
     run_bot()
