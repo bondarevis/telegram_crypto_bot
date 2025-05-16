@@ -17,21 +17,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация Flask
-app = Flask(__name__)
-
-# Проверка обязательных переменных окружения
-REQUIRED_ENV_VARS = ['TELEGRAM_TOKEN', 'TELEGRAM_CHANNEL']
-missing_vars = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-if missing_vars:
-    logger.error(f'Отсутствуют обязательные переменные окружения: {", ".join(missing_vars)}')
-    exit(1)
-
-# Конфигурация
+# Конфигурация (данные уже вставлены)
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
+CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 REQUEST_TIMEOUT = 15
 PORT = int(os.getenv('PORT', 10000))
+
+# Инициализация Flask
+app = Flask(__name__)
 
 # Инициализация бота
 try:
@@ -62,7 +56,7 @@ def fetch_coingecko():
 def fetch_cmc():
     try:
         url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-        headers = {"X-CMC_PRO_API_KEY": os.getenv('CMC_API_KEY', '')}
+        headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()["data"]
@@ -81,7 +75,8 @@ def fetch_rbk_crypto():
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
         headlines = [h.text.strip() for h in soup.select('.item__title')[:3]]
-        return "📰 RBK Crypto:\n" + "\n".join(f"• {h}" for h in headlines)
+        return "📰 RBK Crypto:
+" + "\n".join(f"• {h}" for h in headlines)
     except Exception as e:
         logger.error(f"RBK error: {e}")
         return "❌ RBK: ошибка парсинга"
@@ -105,7 +100,6 @@ def send_market_update():
 def schedule_posts():
     for hour in range(8, 23):
         schedule.every().day.at(f"{hour:02d}:00").do(send_market_update)
-    
     while True:
         schedule.run_pending()
         time.sleep(60)
@@ -116,15 +110,12 @@ def run_bot():
     bot.infinity_polling(none_stop=True, timeout=30)
 
 if __name__ == "__main__":
-    # Запуск планировщика в отдельном потоке
     scheduler_thread = threading.Thread(target=schedule_posts, daemon=True)
     scheduler_thread.start()
-    
-    # Запуск Flask-сервера
+
     threading.Thread(
         target=lambda: app.run(host='0.0.0.0', port=PORT),
         daemon=True
     ).start()
-    
-    # Запуск бота
+
     run_bot()
