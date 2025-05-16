@@ -6,10 +6,12 @@ services:
     startCommand: gunicorn app:app
     envVars:
       - key: TELEGRAM_TOKEN
-        value: ваш_токен_бота  # Получить у @BotFather
+        value: "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"  # Получить у @BotFather
       - key: TELEGRAM_CHANNEL
-        value: "@ваш_канал"    # Например "@crypto_news"
+        value: "@Digital_Fund_1"    # Например "@crypto_news"
       - key: CMC_API_KEY
-        value: ваш_ключ_CMC    # Опционально
+        value: "6316a41d-db32-4e49-a2a3-b66b96c663bf"
+
+    # Опционально
       - key: PORT
         value: 10000
