@@ -29,8 +29,8 @@ for var in REQUIRED_ENV_VARS:
 app = Flask(__name__)
 
 # Конфигурация
-TOKEN = os.environ['8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk']  # Используем os.environ вместо os.getenv для строгой проверки
-CHANNEL_ID = os.environ['@Digital_Fund_1']
+TELEGRAM_TOKEN = os.environ['8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk']  # Используем os.environ вместо os.getenv для строгой проверки
+TELEGRAM_CHANNEL = os.environ['@Digital_Fund_1']
 CMC_API_KEY = os.environ['6316a41d-db32-4e49-a2a3-b66b96c663bf']
 REQUEST_TIMEOUT = 15
 PORT = int(os.getenv('PORT', 10000))
