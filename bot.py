@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 import logging
 from flask import Flask
 import pytz
+from googletrans import Translator  # Добавлен переводчик
 
 # Настройка логирования
 logging.basicConfig(
@@ -22,9 +23,10 @@ logger = logging.getLogger(__name__)
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
-REQUEST_TIMEOUT = 30  # Увеличенный таймаут
+REQUEST_TIMEOUT = 30
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 PORT = int(os.getenv('PORT', 10000))
+translator = Translator()  # Инициализация переводчика
 
 # Инициализация Flask
 app = Flask(__name__)
@@ -32,219 +34,165 @@ app = Flask(__name__)
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
 
-@app.route('/')
-def health_check():
-    return "Crypto Bot is Running", 200
+# ... [остальные функции из предыдущего кода] ...
 
-def get_current_time():
-    return datetime.datetime.now(MOSCOW_TZ)
-
-def fetch_market_data():
+def parse_forklog():
     try:
-        # CoinGecko данные
-        gecko_url = "https://api.coingecko.com/api/v3/global"
-        gecko_response = requests.get(gecko_url, timeout=REQUEST_TIMEOUT)
-        gecko_response.raise_for_status()
-        gecko_data = gecko_response.json()
-        
-        btc_dominance_gecko = round(gecko_data["data"]["market_cap_percentage"]["btc"], 2)
-        total_market_cap_gecko = round(gecko_data["data"]["total_market_cap"]["usd"] / 1e12, 2)
-
-        # CoinMarketCap данные
-        cmc_url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-        cmc_headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-        cmc_response = requests.get(cmc_url, headers=cmc_headers, timeout=REQUEST_TIMEOUT)
-        cmc_response.raise_for_status()
-        cmc_data = cmc_response.json()["data"]
-        
-        btc_dominance_cmc = round(cmc_data["btc_dominance"], 2)
-        total_market_cap_cmc = round(cmc_data["quote"]["USD"]["total_market_cap"] / 1e12, 2)
-
-        return (
-            "📊 *Рыночная статистика*\n\n"
-            f"• Общая капитализация: ${(total_market_cap_gecko + total_market_cap_cmc)/2:.2f}T\n"
-            f"• Средняя доминация BTC: {(btc_dominance_gecko + btc_dominance_cmc)/2:.2f}%\n"
-            f"• Данные: CoinGecko & CoinMarketCap"
-        )
-    except Exception as e:
-        logger.error(f"Market data error: {str(e)}")
-        return "🔴 Рыночные данные временно недоступны"
-
-def parse_rbc_news():
-    try:
-        base_url = "https://www.rbc.ru"
-        main_url = f"{base_url}/crypto/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-        }
-        
-        response = requests.get(main_url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Актуальный селектор для 2024
-        article = soup.select_one('.item__wrap.js-news-feed-item:not(.item__wrap--ad)')
-        if not article:
-            logger.warning("Не найдено актуальных новостей на RBK Crypto")
-            return None
-            
-        title = article.select_one('.item__title').text.strip()
-        link = article.find('a')['href']
-        if not link.startswith('http'):
-            link = base_url + link
-        
-        return {
-            'title': title,
-            'content': parse_article_content(link),
-            'source': 'RBK Crypto',
-            'link': link
-        }
-    except Exception as e:
-        logger.error(f"RBK News error: {str(e)}")
-        return None
-
-def parse_tradingview_news():
-    try:
-        url = "https://www.tradingview.com/news/cryptocurrencies/"
+        url = "https://forklog.com/news"
         headers = {'User-Agent': 'Mozilla/5.0'}
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        article = soup.select_one('.news-item-card')
+        article = soup.select_one('.post_item:not(.media_pt)')
+        if not article:
+            return None
+            
+        title = article.select_one('.post_title').text.strip()
+        link = article.find('a')['href']
+        if not link.startswith('http'):
+            link = f"https://forklog.com{link}"
+            
+        return {
+            'title': title,
+            'content': parse_forklog_article(link),
+            'source': 'ForkLog',
+            'link': link
+        }
+    except Exception as e:
+        logger.error(f"ForkLog error: {str(e)}")
+        return None
+
+def parse_forklog_article(url):
+    try:
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=REQUEST_TIMEOUT)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        content = ' '.join([p.text.strip() for p in soup.select('.post_content p')[:3]])
+        return f"{content[:400]}..." if content else "Читать далее ➡️"
+    except:
+        return "Читать далее ➡️"
+
+def parse_yahoo_crypto():
+    try:
+        url = "https://finance.yahoo.com/topic/crypto/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        article = soup.select_one('li.js-stream-content')
+        if not article:
+            return None
+            
+        title = article.select_one('h3').text.strip()
+        link = article.find('a')['href']
+        if not link.startswith('http'):
+            link = f"https://finance.yahoo.com{link}"
+            
+        # Перевод контента
+        translated = translator.translate(title, src='en', dest='ru').text
+        return {
+            'title': f"[Перевод] {translated}",
+            'content': translate_yahoo_content(link),
+            'source': 'Yahoo Finance',
+            'link': link
+        }
+    except Exception as e:
+        logger.error(f"Yahoo error: {str(e)}")
+        return None
+
+def translate_yahoo_content(url):
+    try:
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=REQUEST_TIMEOUT)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        content = ' '.join([p.text.strip() for p in soup.select('.caas-body p')[:2]])
+        return translator.translate(content[:500], src='en', dest='ru').text + "..."
+    except:
+        return "Читать оригинал ➡️"
+
+def parse_beincrypto():
+    try:
+        url = "https://ru.beincrypto.com/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        article = soup.select_one('.listingArticle')
         if not article:
             return None
             
         title = article.select_one('.title').text.strip()
-        link = "https://www.tradingview.com" + article['href']
-        description = article.select_one('.description').text.strip()[:300] + "..."
-        
+        link = article.find('a')['href']
         return {
             'title': title,
-            'content': description,
-            'source': 'TradingView',
+            'content': parse_beincrypto_article(link),
+            'source': 'BeInCrypto',
             'link': link
         }
     except Exception as e:
-        logger.error(f"TradingView News error: {str(e)}")
+        logger.error(f"BeInCrypto error: {str(e)}")
         return None
 
-def parse_article_content(url):
+def parse_beincrypto_article(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        content_blocks = soup.select('.article__text p')
-        if not content_blocks:
-            return "Читать полную версию статьи ➡️"
-            
-        return ' '.join([p.text.strip() for p in content_blocks[:3]])[:400] + "..."
-    except Exception as e:
-        logger.error(f"Article parsing error: {str(e)}")
-        return "Читать полную версию статьи ➡️"
-
-def generate_daily_report():
-    try:
-        time_now = get_current_time().strftime("%d.%m.%Y %H:%M")
-        market_data = fetch_market_data()
-        
-        return (
-            f"🌍 *Ежедневный рыночный отчет* ({time_now})\n\n"
-            f"{market_data}\n\n"
-            "#Рынок #Статистика #Аналитика"
-        )
-    except Exception as e:
-        logger.error(f"Report generation error: {str(e)}")
-        return None
-
-def generate_news_post(news_item):
-    try:
-        time_now = get_current_time().strftime("%d.%m.%Y %H:%M")
-        return (
-            f"📰 *Крипто-новости* ({time_now})\n\n"
-            f"🏷 *{news_item['title']}*\n"
-            f"{news_item['content']}\n\n"
-            f"🔍 Источник: {news_item['source']}\n"
-            f"🔗 [Читать полностью]({news_item['link']})\n\n"
-            "#Новости #Аналитика"
-        )
-    except Exception as e:
-        logger.error(f"News post error: {str(e)}")
-        return None
-
-def send_post(post, is_news=False):
-    try:
-        if not post:
-            logger.warning("Пустой пост, отправка отменена")
-            return
-            
-        logger.info("Начало отправки поста...")
-        bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=post,
-            parse_mode="Markdown",
-            disable_web_page_preview=not is_news
-        )
-        logger.info("Пост успешно отправлен")
-    except Exception as e:
-        logger.error(f"Ошибка отправки: {str(e)}")
-
-def schedule_tasks():
-    logger.info("Инициализация расписания...")
-    
-    # Рыночные отчеты в 08:00 и 22:00 по Москве
-    schedule.every().day.at("08:00").do(lambda: send_post(generate_daily_report())).tag('reports')
-    schedule.every().day.at("22:00").do(lambda: send_post(generate_daily_report())).tag('reports')
-    
-    # Новости каждый час с 09:00 до 21:00 по Москве
-    for hour in range(9, 22):
-        schedule.every().day.at(f"{hour:02d}:00").do(post_news_update).tag('news')
-    
-    logger.info(f"Запланированные задачи: {schedule.get_jobs()}")
-
-def post_news_update():
-    try:
-        logger.info(f"🚀 Запуск новостной задачи в {get_current_time().strftime('%H:%M:%S')}")
-        
-        # Чередуем источники с задержкой
-        sources = ['rbc', 'tradingview']
-        for source in sources:
-            time.sleep(2)  # Задержка между источниками
-            news_item = fetch_news(source)
-            if news_item:
-                post = generate_news_post(news_item)
-                if post:
-                    send_post(post, is_news=True)
-                    time.sleep(3)  # Пауза между постами
-            else:
-                logger.warning(f"Новости из {source} не получены")
-                
-    except Exception as e:
-        logger.error(f"Критическая ошибка в задаче: {str(e)}")
+        content = ' '.join([p.text.strip() for p in soup.select('.article-content p')[:3]])
+        return f"{content[:400]}..." if content else "Читать далее ➡️"
+    except:
+        return "Читать далее ➡️"
 
 def fetch_news(source):
     try:
+        time.sleep(2)  # Задержка между источниками
         if source == "rbc":
             return parse_rbc_news()
         elif source == "tradingview":
             return parse_tradingview_news()
+        elif source == "forklog":
+            return parse_forklog()
+        elif source == "yahoo":
+            return parse_yahoo_crypto()
+        elif source == "beincrypto":
+            return parse_beincrypto()
         return None
     except Exception as e:
-        logger.error(f"Ошибка получения новостей ({source}): {str(e)}")
+        logger.error(f"News fetch error ({source}): {str(e)}")
         return None
 
-def run_scheduler():
-    logger.info("Запуск планировщика...")
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            logger.error(f"Ошибка планировщика: {str(e)}")
-            time.sleep(10)
+def schedule_tasks():
+    logger.info("Инициализация расписания...")
+    
+    # Рыночные отчеты
+    schedule.every().day.at("08:00").do(lambda: send_post(generate_daily_report())).tag('reports')
+    schedule.every().day.at("22:00").do(lambda: send_post(generate_daily_report())).tag('reports')
+    
+    # Новости с ротацией источников
+    sources = ['rbc', 'tradingview', 'forklog', 'yahoo', 'beincrypto']
+    for hour in range(9, 22):
+        source = sources[(hour-9) % len(sources)]  # Ротация источников
+        schedule.every().day.at(f"{hour:02d}:00").do(
+            lambda s=source: post_news_update(s)
+        ).tag('news')
+
+def post_news_update(source):
+    try:
+        logger.info(f"🚀 Запуск новостной задачи для {source} в {get_current_time().strftime('%H:%M:%S')}")
+        news_item = fetch_news(source)
+        if news_item:
+            post = generate_news_post(news_item)
+            if post:
+                send_post(post, is_news=True)
+        else:
+            logger.warning(f"Новости из {source} не получены")
+    except Exception as e:
+        logger.error(f"Ошибка в задаче {source}: {str(e)}")
+
+# ... [остальные функции остаются без изменений] ...
 
 if __name__ == "__main__":
     # Настройка временной зоны
@@ -258,8 +206,7 @@ if __name__ == "__main__":
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    # Основной цикл
-    logger.info("🤖 Бот успешно запущен")
+    logger.info("🤖 Бот запущен с новыми источниками")
     try:
         while True:
             time.sleep(3600)
