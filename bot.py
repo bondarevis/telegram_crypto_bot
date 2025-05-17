@@ -8,7 +8,7 @@ import threading
 from bs4 import BeautifulSoup
 import logging
 from flask import Flask
- 
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -16,17 +16,17 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
- 
-# Конфигурация (данные уже вставлены)
+
+# Конфигурация
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
-CHANNEL_ID = "@Digital_Fund_1"
+CHANNEL_USERNAME = "@Digital_Fund_1"  # Username канала
 CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 REQUEST_TIMEOUT = 15
 PORT = int(os.getenv('PORT', 10000))
- 
+
 # Инициализация Flask
 app = Flask(__name__)
- 
+
 # Инициализация бота
 try:
     bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
@@ -34,11 +34,11 @@ try:
 except Exception as e:
     logger.error(f"Ошибка инициализации бота: {e}")
     exit(1)
- 
+
 @app.route('/')
 def health_check():
     return "Crypto Bot is Running", 200
- 
+
 def fetch_coingecko():
     try:
         url = "https://api.coingecko.com/api/v3/global"
@@ -52,7 +52,7 @@ def fetch_coingecko():
     except Exception as e:
         logger.error(f"CoinGecko error: {e}")
         return "❌ CoinGecko: временные проблемы"
- 
+
 def fetch_cmc():
     try:
         url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
@@ -67,7 +67,7 @@ def fetch_cmc():
     except Exception as e:
         logger.error(f"CMC error: {e}")
         return "❌ CMC: временные проблемы"
- 
+
 def fetch_rbk_crypto():
     try:
         url = "https://www.rbc.ru/crypto/"
@@ -79,42 +79,60 @@ def fetch_rbk_crypto():
     except Exception as e:
         logger.error(f"RBK error: {e}")
         return "❌ RBK: ошибка парсинга"
- 
+
 def generate_post():
     now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-    return f"""🚀 Крипто-обзор на {now}
- 
+    post = f"""🚀 Крипто-обзор на {now}
+
 {fetch_coingecko()}
 {fetch_cmc()}
 {fetch_rbk_crypto()}
- 
+
 #Crypto #Аналитика #Новости"""
- 
+    logger.info("Пост сгенерирован")
+    return post
+
 def send_market_update():
     try:
+        logger.info("Попытка отправки поста в канал...")
         bot.send_message(CHANNEL_ID, generate_post(), parse_mode="Markdown")
+        logger.info("Пост успешно отправлен")
     except Exception as e:
-        logger.error(f"Send error: {e}")
- 
+        logger.error(f"Ошибка отправки сообщения: {e}")
+
 def schedule_posts():
     for hour in range(8, 23):
         schedule.every().day.at(f"{hour:02d}:00").do(send_market_update)
     while True:
         schedule.run_pending()
         time.sleep(60)
- 
+
 def run_bot():
     bot.remove_webhook()
-    logger.info("Starting bot polling...")
+    logger.info("Запуск опроса бота...")
     bot.infinity_polling(none_stop=True, timeout=30)
- 
+
+def resolve_channel_id():
+    global CHANNEL_ID
+    try:
+        chat = bot.get_chat(CHANNEL_USERNAME)
+        CHANNEL_ID = chat.id
+        logger.info(f"CHANNEL_ID успешно получен: {CHANNEL_ID}")
+    except Exception as e:
+        logger.error(f"Не удалось получить chat ID для канала {CHANNEL_USERNAME}: {e}")
+        exit(1)
+
 if __name__ == "__main__":
+    resolve_channel_id()
+
+    send_market_update()  # Отправка тестового сообщения сразу после запуска
+
     scheduler_thread = threading.Thread(target=schedule_posts, daemon=True)
     scheduler_thread.start()
- 
+
     threading.Thread(
         target=lambda: app.run(host='0.0.0.0', port=PORT),
         daemon=True
     ).start()
- 
+
     run_bot()
