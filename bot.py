@@ -39,10 +39,9 @@ def health_check():
 def get_current_time():
     return datetime.datetime.now(MOSCOW_TZ)
 
-# Рыночная статистика
 def fetch_market_data():
     try:
-        # CoinGecko
+        # CoinGecko данные
         gecko_url = "https://api.coingecko.com/api/v3/global"
         gecko_response = requests.get(gecko_url, timeout=REQUEST_TIMEOUT)
         gecko_data = gecko_response.json()
@@ -50,7 +49,7 @@ def fetch_market_data():
         btc_dominance_gecko = round(gecko_data["data"]["market_cap_percentage"]["btc"], 2)
         total_market_cap_gecko = round(gecko_data["data"]["total_market_cap"]["usd"] / 1e12, 2)
 
-        # CoinMarketCap
+        # CoinMarketCap данные
         cmc_url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
         cmc_headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
         cmc_response = requests.get(cmc_url, headers=cmc_headers, timeout=REQUEST_TIMEOUT)
@@ -69,61 +68,58 @@ def fetch_market_data():
         logger.error(f"Market data error: {e}")
         return "🔴 Рыночные данные временно недоступны"
 
-# Парсинг новостей
-def fetch_news(source):
-    try:
-        if source == "rbc":
-            return parse_rbc_news()
-        elif source == "tradingview":
-            return parse_tradingview_news()
-    except Exception as e:
-        logger.error(f"News error ({source}): {e}")
-        return None
-
 def parse_rbc_news():
-    base_url = "https://www.rbc.ru"
-    main_url = f"{base_url}/crypto/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    response = requests.get(main_url, headers=headers, timeout=REQUEST_TIMEOUT)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    article = soup.select_one('.js-news-feed-item')
-    if not article:
-        return None
+    try:
+        base_url = "https://www.rbc.ru"
+        main_url = f"{base_url}/crypto/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
-    title = article.select_one('.news-feed__item__title').text.strip()
-    link = article['href']
-    description = parse_article_content(link)
-    
-    return {
-        'title': title,
-        'content': description,
-        'source': 'RBK Crypto',
-        'link': link if link.startswith('http') else base_url + link
-    }
+        response = requests.get(main_url, headers=headers, timeout=REQUEST_TIMEOUT)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        article = soup.select_one('.js-news-feed-item')
+        if not article:
+            return None
+            
+        title = article.select_one('.news-feed__item__title').text.strip()
+        link = article['href']
+        description = parse_article_content(link)
+        
+        return {
+            'title': title,
+            'content': description,
+            'source': 'RBK Crypto',
+            'link': link if link.startswith('http') else base_url + link
+        }
+    except Exception as e:
+        logger.error(f"RBK News error: {e}")
+        return None
 
 def parse_tradingview_news():
-    url = "https://www.tradingview.com/news/cryptocurrencies/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    article = soup.select_one('.news-item-card')
-    if not article:
-        return None
+    try:
+        url = "https://www.tradingview.com/news/cryptocurrencies/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
-    title = article.select_one('.title').text.strip()
-    link = "https://www.tradingview.com" + article['href']
-    description = article.select_one('.description').text.strip()[:300] + "..."
-    
-    return {
-        'title': title,
-        'content': description,
-        'source': 'TradingView',
-        'link': link
-    }
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        article = soup.select_one('.news-item-card')
+        if not article:
+            return None
+            
+        title = article.select_one('.title').text.strip()
+        link = "https://www.tradingview.com" + article['href']
+        description = article.select_one('.description').text.strip()[:300] + "..."
+        
+        return {
+            'title': title,
+            'content': description,
+            'source': 'TradingView',
+            'link': link
+        }
+    except Exception as e:
+        logger.error(f"TradingView News error: {e}")
+        return None
 
 def parse_article_content(url):
     try:
@@ -133,7 +129,8 @@ def parse_article_content(url):
         
         content_blocks = soup.select('.article__text p')
         return ' '.join([p.text.strip() for p in content_blocks[:3]])[:400] + "..."
-    except:
+    except Exception as e:
+        logger.error(f"Article parsing error: {e}")
         return "Читать полную версию статьи ➡️"
 
 def generate_daily_report():
@@ -184,17 +181,17 @@ def send_post(post, is_news=False):
 def schedule_tasks():
     logger.info("Настройка расписания...")
     
-    # Рыночные отчеты в 08:00 и 22:00
+    # Рыночные отчеты в 08:00 и 22:00 по Москве
     schedule.every().day.at("08:00").do(lambda: send_post(generate_daily_report()))
     schedule.every().day.at("22:00").do(lambda: send_post(generate_daily_report()))
     
-    # Новости каждый час с 09:00 до 21:00
+    # Новости каждый час с 09:00 до 21:00 по Москве
     for hour in range(9, 22):
         schedule.every().day.at(f"{hour:02d}:00").do(post_news_update)
 
 def post_news_update():
     try:
-        # Получаем новости из разных источников
+        # Чередуем источники новостей
         sources = ['rbc', 'tradingview']
         for source in sources:
             news_item = fetch_news(source)
@@ -205,6 +202,17 @@ def post_news_update():
                     time.sleep(5)  # Пауза между постами
     except Exception as e:
         logger.error(f"News update error: {e}")
+
+def fetch_news(source):
+    try:
+        if source == "rbc":
+            return parse_rbc_news()
+        elif source == "tradingview":
+            return parse_tradingview_news()
+        return None
+    except Exception as e:
+        logger.error(f"News fetch error: {e}")
+        return None
 
 def run_scheduler():
     while True:
@@ -220,15 +228,10 @@ if __name__ == "__main__":
     os.environ['TZ'] = 'Europe/Moscow'
     time.tzset()
     
-    # Запуск Flask
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False),
-        daemon=True
-    )
-    flask_thread.start()
-    
-    # Запуск планировщика
+    # Инициализация планировщика
     schedule_tasks()
+    
+    # Запуск планировщика в отдельном потоке
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
