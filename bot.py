@@ -22,8 +22,7 @@ logger = logging.getLogger(__name__)
 # Конфигурация
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
-CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 40
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 PORT = int(os.getenv('PORT', 10000))
 translator = Translator()
@@ -44,7 +43,10 @@ def get_current_time():
 def parse_rbc_crypto():
     try:
         url = "https://www.rbc.ru/crypto/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept-Language': 'ru-RU,ru;q=0.9'
+        }
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -59,11 +61,11 @@ def parse_rbc_crypto():
         # Парсинг полного текста
         article_response = requests.get(link, headers=headers, timeout=REQUEST_TIMEOUT)
         article_soup = BeautifulSoup(article_response.text, 'html.parser')
-        content = '\n'.join([p.text.strip() for p in article_soup.select('.article__text p')[:5]])
+        content = '\n'.join([p.text.strip() for p in article_soup.select('.article__text p')[:7]])
         
         return {
             'title': title,
-            'content': content[:2000] + '...' if len(content) > 2000 else content,
+            'content': content[:2500] + '...' if len(content) > 2500 else content,
             'source': 'РБК Крипто',
             'link': link
         }
@@ -74,7 +76,10 @@ def parse_rbc_crypto():
 def parse_yahoo_crypto():
     try:
         url = "https://finance.yahoo.com/topic/crypto/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -89,7 +94,7 @@ def parse_yahoo_crypto():
         
         return {
             'title': translated_title,
-            'content': content[:2000] + '...' if len(content) > 2000 else content,
+            'content': content[:2500] + '...' if len(content) > 2500 else content,
             'source': 'Yahoo Finance',
             'link': f"https://finance.yahoo.com{link}"
         }
@@ -100,7 +105,10 @@ def parse_yahoo_crypto():
 def parse_beincrypto():
     try:
         url = "https://ru.beincrypto.com/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept-Language': 'ru-RU,ru;q=0.9'
+        }
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -112,11 +120,11 @@ def parse_beincrypto():
         # Парсинг полного текста
         article_response = requests.get(link, headers=headers, timeout=REQUEST_TIMEOUT)
         article_soup = BeautifulSoup(article_response.text, 'html.parser')
-        content = '\n'.join([p.text.strip() for p in article_soup.select('.article-content p')[:5]])
+        content = '\n'.join([p.text.strip() for p in article_soup.select('.article-content p')[:7]])
         
         return {
             'title': title,
-            'content': content[:2000] + '...' if len(content) > 2000 else content,
+            'content': content[:2500] + '...' if len(content) > 2500 else content,
             'source': 'BeInCrypto',
             'link': link
         }
@@ -127,7 +135,10 @@ def parse_beincrypto():
 def parse_tradingview():
     try:
         url = "https://ru.tradingview.com/news-flow/?market=crypto"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept-Language': 'ru-RU,ru;q=0.9'
+        }
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -139,7 +150,7 @@ def parse_tradingview():
         
         return {
             'title': title,
-            'content': content[:2000] + '...' if len(content) > 2000 else content,
+            'content': content[:2500] + '...' if len(content) > 2500 else content,
             'source': 'TradingView',
             'link': link
         }
@@ -160,27 +171,34 @@ def generate_post(news_item):
         logger.error(f"Post generation error: {str(e)}")
         return None
 
-def send_post(news_item):
+def send_post(parser_func):
     try:
+        logger.info(f"Запуск парсера: {parser_func.__name__}")
+        news_item = parser_func()
+        
         if not news_item:
+            logger.warning("Новость не найдена")
             return
             
         post = generate_post(news_item)
-        if post:
-            bot.send_message(
-                chat_id=CHANNEL_ID,
-                text=post,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-            logger.info(f"Пост от {news_item['source']} успешно отправлен")
+        if not post:
+            logger.warning("Не удалось сгенерировать пост")
+            return
+            
+        bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=post,
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
+        logger.info(f"Успешно опубликовано: {news_item['source']}")
+        
     except Exception as e:
-        logger.error(f"Ошибка отправки: {str(e)}")
+        logger.error(f"Ошибка: {str(e)}")
 
 def schedule_tasks():
     logger.info("Настройка расписания...")
     
-    # Расписание публикаций
     schedule_config = {
         '09:00': parse_rbc_crypto,
         '10:00': parse_yahoo_crypto,
@@ -197,11 +215,9 @@ def schedule_tasks():
     }
 
     for time_str, parser in schedule_config.items():
-        schedule.every().day.at(time_str).do(
-            lambda p=parser: send_post(p())
+        schedule.every().day.at(time_str, MOSCOW_TZ).do(
+            lambda p=parser: send_post(p)
         ).tag('news')
-
-    logger.info(f"Активные задачи: {schedule.get_jobs()}")
 
 def run_scheduler():
     while True:
@@ -210,28 +226,24 @@ def run_scheduler():
             time.sleep(1)
         except Exception as e:
             logger.error(f"Ошибка планировщика: {str(e)}")
-            time.sleep(10)
+            time.sleep(30)
 
 if __name__ == "__main__":
-    # Настройка временной зоны
     os.environ['TZ'] = 'Europe/Moscow'
     time.tzset()
     
-    # Инициализация планировщика
     schedule_tasks()
     
-    # Запуск Flask
     flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False),
+        target=lambda: app.run(host='0.0.0.0', port=PORT),
         daemon=True
     )
     flask_thread.start()
     
-    # Запуск планировщика
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    logger.info("🤖 Бот успешно запущен с новым расписанием")
+    logger.info("🤖 Бот успешно запущен")
     try:
         while True:
             time.sleep(3600)
