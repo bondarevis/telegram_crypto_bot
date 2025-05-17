@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация (данные уже вставлены)
+# Конфигурация
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
@@ -48,10 +48,10 @@ def fetch_coingecko():
         btc_dominance = round(data["data"]["market_cap_percentage"]["btc"], 2)
         total_market_cap = round(data["data"]["total_market_cap"]["usd"] / 1e12, 2)
         market_change = round(data["data"]["market_cap_change_percentage_24h_usd"], 2)
-        return f"📊 CoinGecko: Капитализация ${total_market_cap}T | BTC домин. {btc_dominance}% | Изм. 24ч: {market_change}%"
+        return f"CoinGecko: Капитализация ${total_market_cap}T | BTC домин. {btc_dominance}% | Изм. 24ч: {market_change}%"
     except Exception as e:
         logger.error(f"CoinGecko error: {e}")
-        return "❌ CoinGecko: временные проблемы"
+        return "CoinGecko: временные проблемы"
 
 def fetch_cmc():
     try:
@@ -63,10 +63,10 @@ def fetch_cmc():
         btc_dominance = round(data["btc_dominance"], 2)
         total_market_cap = round(data["quote"]["USD"]["total_market_cap"] / 1e12, 2)
         market_change = round(data["quote"]["USD"]["total_market_cap_yesterday_percentage_change"], 2)
-        return f"📈 CMC: Капитализация ${total_market_cap}T | BTC домин. {btc_dominance}% | Изм.: {market_change}%"
+        return f"CMC: Капитализация ${total_market_cap}T | BTC домин. {btc_dominance}% | Изм.: {market_change}%"
     except Exception as e:
         logger.error(f"CMC error: {e}")
-        return "❌ CMC: временные проблемы"
+        return "CMC: временные проблемы"
 
 def fetch_rbk_crypto():
     try:
@@ -75,14 +75,15 @@ def fetch_rbk_crypto():
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
         headlines = [h.text.strip() for h in soup.select('.item__title')[:3]]
-        return "📰 RBK Crypto:\n" + "\n".join(f"• {h}" for h in headlines)
+        return "RBK Crypto:
+" + "\n".join(f"• {h}" for h in headlines)
     except Exception as e:
         logger.error(f"RBK error: {e}")
-        return "❌ RBK: ошибка парсинга"
+        return "RBK: ошибка парсинга"
 
 def generate_post():
     now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-    return f"""🚀 Крипто-обзор на {now}
+    return f"""Крипто-обзор на {now}
 
 {fetch_coingecko()}
 {fetch_cmc()}
