@@ -11,6 +11,7 @@ import hashlib
 from deep_translator import GoogleTranslator
 import re
 from bs4 import NavigableString
+import threading
 
 app = Flask(__name__)
 
@@ -27,23 +28,20 @@ MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 bot = telebot.TeleBot(TOKEN)
 scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 sent_posts = set()
+post_lock = threading.Lock()
 
 def enhance_translation(text):
-    """Профессиональная постобработка перевода"""
-    crypto_dict = {
-        r'\bTaps\b': 'использует',
-        r'\bпростоя\b': 'неиспользуемых',
-        r'\bодабок\b': 'решений',
-        r'\bDEFI\b': 'DeFi',
-        r'\bхолостое время\b': 'периоды простоя',
-        r'\bзарплату\b': 'заработную плату',
-        r'\bконсервативные запасы\b': 'резервные средства'
+    """Улучшение перевода для криптотерминов"""
+    term_map = {
+        r'\bairdrop\b': 'эйрдроп',
+        r'\bstaking\b': 'стейкинг',
+        r'\bgas fee\b': 'комиссия сети',
+        r'\bwhitepaper\b': 'технический документ',
+        r'\bflash loan\b': 'мгновенный займ',
+        r'\byield farming\b': 'фермерство доходности'
     }
-    
-    for pattern, replacement in crypto_dict.items():
+    for pattern, replacement in term_map.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    
-    text = re.sub(r'\s+', ' ', text)
     return text
 
 def translate_text(text):
@@ -51,116 +49,106 @@ def translate_text(text):
         translated = GoogleTranslator(source='auto', target='ru').translate(text)
         return enhance_translation(translated)
     except Exception as e:
-        logger.error(f"Ошибка перевода: {str(e)}")
+        logger.error(f"Translation error: {str(e)}")
         return text
 
-def extract_meaningful_content(soup):
-    """Извлечение ключевого контента"""
-    content = []
-    
-    selectors = [
-        {'class': ['article__content', 'post-content']},
+def extract_content(soup):
+    """Извлечение основного контента статьи"""
+    content_selectors = [
+        {'class': 'post-content'},
         {'itemprop': 'articleBody'},
+        {'class': 'article__content'},
         'article'
     ]
     
-    for selector in selectors:
+    for selector in content_selectors:
         main_content = soup.find('div', selector) or soup.find('article', selector)
         if main_content:
-            for p in main_content.find_all('p'):
-                text = p.get_text(strip=True)
-                if 50 < len(text) < 500 and not re.search(r'(?:http|@|©|Спонсор)', text):
-                    content.append(text)
-            if content:
-                return ' '.join(content[:6])
-    
+            paragraphs = [p.get_text(strip=True) for p in main_content.find_all('p')]
+            return ' '.join(paragraphs[:8])
     return None
 
-def get_post_content(url):
+def get_post_data(url):
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept-Language': 'en-US;q=0.9, ru;q=0.8'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=25)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        raw_content = extract_meaningful_content(soup)
-        if not raw_content:
+        content = extract_content(soup)
+        if not content:
             return None
-        
-        translated = translate_text(raw_content[:2000])
+            
+        translated = translate_text(content[:2500])
         sentences = re.split(r'(?<=[.!?])\s+', translated)
-        return [s for s in sentences if 30 < len(s) < 300][:5]
-    
+        return [s.strip() for s in sentences if 50 < len(s) < 300][:5]
     except Exception as e:
-        logger.error(f"Ошибка контента: {str(e)}")
+        logger.error(f"Content error: {str(e)}")
         return None
 
 def format_post(blocks):
-    """Чистое форматирование поста"""
-    formatted = [f"🔸 {block.strip()}" for block in blocks if block.strip()]
-    return '\n\n'.join(formatted)
+    """Форматирование поста с нумерацией"""
+    return '\n\n'.join([f"🔹 {b}" for b in blocks[:4]])
 
-def get_crypto_news():
+def get_fresh_news():
+    """Получение и фильтрация новых статей"""
     try:
-        url = "https://cointelegraph.com/rss"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=25)
+        rss_url = "https://cointelegraph.com/rss"
+        response = requests.get(rss_url, timeout=20)
         soup = BeautifulSoup(response.text, 'xml')
         
-        news = []
-        for item in soup.select('item')[:15]:
+        news_items = []
+        for item in soup.select('item')[:20]:
             try:
                 title = translate_text(item.title.text.strip())
                 link = item.link.text.strip()
-                content_blocks = get_post_content(link)
+                content = get_post_data(link)
                 
-                if not content_blocks or len(content_blocks) < 3:
+                if not content or len(content) < 3:
                     continue
                 
                 post_hash = hashlib.md5(f"{title}{link}".encode()).hexdigest()
                 
                 if post_hash not in sent_posts:
-                    news.append({
+                    news_items.append({
                         'title': title,
-                        'content': format_post(content_blocks),
+                        'content': format_post(content),
                         'link': link,
                         'hash': post_hash
                     })
             except Exception as e:
-                logger.error(f"Ошибка новости: {str(e)}")
+                logger.error(f"News processing error: {str(e)}")
         
-        return news
-    
+        return news_items
     except Exception as e:
-        logger.error(f"Ошибка RSS: {str(e)}")
+        logger.error(f"RSS error: {str(e)}")
         return []
 
-def prepare_post():
-    try:
-        news = get_crypto_news()
+def prepare_unique_post():
+    """Подготовка уникального поста с блокировкой"""
+    with post_lock:
+        news = get_fresh_news()
         if not news:
+            logger.warning("No new posts available")
             return None
-        
+            
         post_data = random.choice(news)
+        if post_data['hash'] in sent_posts:
+            return None
+            
         sent_posts.add(post_data['hash'])
+        logger.info(f"New post prepared: {post_data['hash']}")
         
-        post = f"🚀 *{post_data['title']}*\n\n"
-        post += f"{post_data['content']}\n\n"
-        post += f"🔗 [Читать полный отчет]({post_data['link']})\n"
-        post += "\n#КриптоНовости #Финансы #Блокчейн"
-        
-        return post
-    
-    except Exception as e:
-        logger.error(f"Ошибка подготовки: {str(e)}")
-        return None
+        return (
+            f"🚀 *{post_data['title']}*\n\n"
+            f"{post_data['content']}\n\n"
+            f"🔗 [Полная версия статьи]({post_data['link']})\n"
+            "#КриптоНовости #Аналитика #Блокчейн"
+        )
 
-def send_daily_post():
+def send_scheduled_post():
+    """Безопасная отправка поста"""
     try:
-        post = prepare_post()
+        post = prepare_unique_post()
         if post:
             bot.send_message(
                 chat_id=CHANNEL_ID,
@@ -168,23 +156,26 @@ def send_daily_post():
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
-            logger.info("Успешная публикация")
+            logger.info(f"Post sent at {datetime.datetime.now(MOSCOW_TZ).isoformat()}")
     except Exception as e:
-        logger.error(f"Ошибка отправки: {str(e)}")
+        logger.error(f"Send error: {str(e)}")
 
 def setup_scheduler():
-    """Почасовая публикация с 08:00 до 22:00"""
+    """Настройка почасового расписания"""
     if scheduler.get_jobs():
         scheduler.remove_all_jobs()
+        logger.info("Cleared existing jobs")
     
     for hour in range(8, 23):
         scheduler.add_job(
-            send_daily_post,
+            send_scheduled_post,
             'cron',
             hour=hour,
             minute=0,
-            id=f'hourly_{hour}'
+            id=f'hourly_{hour}',
+            misfire_grace_time=300
         )
+    logger.info(f"Scheduled {23-8} hourly jobs")
 
 @app.route('/')
 def health_check():
@@ -192,12 +183,11 @@ def health_check():
 
 def initialize():
     if not scheduler.running:
-        setup_scheduler()
         scheduler.start()
-        logger.info("Планировщик активирован")
-
-initialize()
+        setup_scheduler()
+        logger.info("Scheduler initialized")
 
 if __name__ == "__main__":
+    initialize()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
