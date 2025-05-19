@@ -5,5 +5,5 @@ beautifulsoup4==4.12.3
 Flask==3.0.2
 gunicorn==21.2.0
 pytz==2024.1
-googletrans==4.0.0-rc1
+googletrans==3.0.0  # Версия с гибкими зависимостями
 openai>=1.0.0
