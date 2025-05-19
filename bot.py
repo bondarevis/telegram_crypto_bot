@@ -2,14 +2,14 @@ import os
 import telebot
 import requests
 import datetime
-import schedule
-import time
 import threading
-from bs4 import BeautifulSoup
 import logging
+import time
 from flask import Flask
 import pytz
 import openai
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # Настройка логирования
 logging.basicConfig(
@@ -24,16 +24,18 @@ TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 DEEPSEEK_API_KEY = "sk-1b4a385cf98446f2995a58ba9a6fd4b8"
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 20
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
-PORT = int(os.getenv('PORT', 10000))
+PORT = 10000
+
+# Инициализация
+app = Flask(__name__)
+bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
+scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 
 # Настройка DeepSeek
 openai.api_key = DEEPSEEK_API_KEY
 openai.api_base = "https://api.deepseek.com/v1"
-
-app = Flask(__name__)
-bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
 
 @app.route('/')
 def health_check():
@@ -63,7 +65,10 @@ def generate_crypto_basics_post():
 def fetch_market_data():
     try:
         url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-        headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+        headers = {
+            "X-CMC_PRO_API_KEY": CMC_API_KEY,
+            "Accept": "application/json"
+        }
         
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -84,39 +89,6 @@ def fetch_market_data():
         logger.error(f"CoinMarketCap error: {str(e)}", exc_info=True)
         return None
 
-def parse_rbc_crypto():
-    try:
-        url = "https://www.rbc.ru/crypto/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Accept-Language': 'ru-RU,ru;q=0.9'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        article = soup.select_one('.js-news-feed-item:not(.news-feed__item--hidden)')
-        if not article:
-            logger.warning("No articles found on RBC")
-            return None
-            
-        title = article.select_one('.news-feed__item__title').text.strip()
-        link = article['href']
-        
-        article_response = requests.get(link, headers=headers, timeout=REQUEST_TIMEOUT)
-        article_soup = BeautifulSoup(article_response.text, 'html.parser')
-        content = '\n'.join([p.text.strip() for p in article_soup.select('.article__text p')[:5]])
-        
-        return {
-            'title': title,
-            'content': content[:2000] + '...' if len(content) > 2000 else content,
-            'source': 'РБК Крипто',
-            'link': link
-        }
-    except Exception as e:
-        logger.error(f"RBC parsing error: {str(e)}", exc_info=True)
-        return None
-
 def generate_market_post():
     try:
         market_data = fetch_market_data()
@@ -125,28 +97,13 @@ def generate_market_post():
         logger.error(f"Market post error: {str(e)}")
         return None
 
-def generate_news_post(news_item):
-    try:
-        if not news_item:
-            return None
-            
-        return (
-            f"📰 *{news_item['title']}*\n\n"
-            f"{news_item['content']}\n\n"
-            f"🔍 Источник: {news_item['source']}\n"
-            f"🔗 [Читать полностью]({news_item['link']})\n\n"
-            "#Новости #Аналитика"
-        )
-    except Exception as e:
-        logger.error(f"News post error: {str(e)}")
-        return None
-
 def send_post(post):
     try:
         if not post:
             logger.warning("Attempt to send empty post")
             return
             
+        logger.info(f"Sending post at {get_current_time()}")
         bot.send_message(
             chat_id=CHANNEL_ID,
             text=post,
@@ -157,55 +114,44 @@ def send_post(post):
     except Exception as e:
         logger.error(f"Send error: {str(e)}")
 
-def schedule_tasks():
-    logger.info(f"Initializing scheduler at {get_current_time()}")
+def setup_scheduler():
+    logger.info("Initializing scheduler...")
     
     # Рыночная статистика
-    schedule.every().day.at("08:00").do(lambda: send_post(generate_market_post()))
-    schedule.every().day.at("22:00").do(lambda: send_post(generate_market_post()))
-    
-    # Новости РБК
-    for hour in range(9, 22):
-        schedule.every().day.at(f"{hour:02d}:00").do(
-            lambda: send_post(generate_news_post(parse_rbc_crypto()))
-        )
+    scheduler.add_job(
+        lambda: send_post(generate_market_post()),
+        CronTrigger(hour='8,22', minute='0', timezone=MOSCOW_TZ)
+    )
     
     # Образовательные посты
-    schedule.every().day.at("15:30").do(lambda: send_post(generate_crypto_basics_post()))
-    schedule.every().day.at("19:30").do(lambda: send_post(generate_crypto_basics_post()))
+    scheduler.add_job(
+        lambda: send_post(generate_crypto_basics_post()),
+        CronTrigger(hour='15,19', minute='30', timezone=MOSCOW_TZ)
+    )
     
-    logger.info(f"Scheduled jobs: {len(schedule.get_jobs())}")
-
-def run_scheduler():
-    logger.info("Starting scheduler")
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            logger.error(f"Scheduler error: {str(e)}")
-            time.sleep(10)
+    logger.info(f"Total jobs scheduled: {len(scheduler.get_jobs())}")
 
 if __name__ == "__main__":
-    # Настройка времени
     os.environ['TZ'] = 'Europe/Moscow'
     time.tzset()
-    logger.info(f"Server time: {get_current_time()}")
+    logger.info(f"Server started at {get_current_time()}")
     
-    # Инициализация задач
-    schedule_tasks()
+    # Настройка планировщика
+    setup_scheduler()
+    scheduler.start()
     
-    # Запуск Flask в отдельном потоке
+    # Запуск Flask
     flask_thread = threading.Thread(
         target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False),
         daemon=True
     )
     flask_thread.start()
     
-    # Основной цикл планировщика
+    # Ожидание прерывания
     try:
-        run_scheduler()
-    except KeyboardInterrupt:
-        logger.info("Stopping bot...")
-    except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
+        while True:
+            time.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Shutting down scheduler...")
+        scheduler.shutdown()
+        logger.info("Bot stopped successfully")
