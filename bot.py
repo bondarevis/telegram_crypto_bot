@@ -1,29 +1,23 @@
-import os
 import telebot
 import requests
+from bs4 import BeautifulSoup
 import datetime
-import threading
-import logging
-import time
-from flask import Flask
 import pytz
-import openai
+import logging
+from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+import random
 
-# Настройка логирования
+# Настройка логов
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # Конфигурация
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
-CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
-DEEPSEEK_API_KEY = "sk-1b4a385cf98446f2995a58ba9a6fd4b8"
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 PORT = 10000
 
@@ -32,119 +26,99 @@ app = Flask(__name__)
 bot = telebot.TeleBot(TOKEN)
 scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 
-# Настройка DeepSeek
-openai.api_key = DEEPSEEK_API_KEY
-openai.api_base = "https://api.deepseek.com/v1"
-
-def generate_hourly_post():
-    """Генерация почасового поста с помощью AI"""
+def get_coin_news():
+    """Парсинг свежих новостей с CoinDesk"""
     try:
-        response = openai.ChatCompletion.create(
-            model="deepseek-chat",
-            messages=[{
-                "role": "user",
-                "content": "Создай короткий информативный пост о криптовалютах. Темы: DeFi, NFT, Web3. Используй эмодзи и markdown."
-            }],
-            temperature=0.7,
-            max_tokens=500
-        )
-        return f"🕒 *Крипто-обновление {datetime.datetime.now(MOSCOW_TZ).strftime('%H:%M')}*\n\n{response.choices[0].message.content}\n\n#Новости"
-    except Exception as e:
-        logger.error(f"Ошибка генерации: {str(e)}")
-        return "🔧 Технические неполадки. Обновление появится позже."
-
-def fetch_market_data():
-    """Получение рыночных данных от CoinMarketCap"""
-    try:
-        url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-        headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-        response = requests.get(url, headers=headers, timeout=20)
-        data = response.json()["data"]
+        url = "https://www.coindesk.com/livewire/"
+        response = requests.get(url, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        return (
-            "📈 *Рыночный отчет*\n\n"
-            f"• Капитализация: ${round(data['quote']['USD']['total_market_cap']/1e12, 2)}T\n"
-            f"• BTC Доминация: {round(data['btc_dominance'], 2)}%\n"
-            f"• Объем 24ч: ${round(data['quote']['USD']['total_volume_24h']/1e9, 2)}B\n"
-            "#Статистика #Рынок"
-        )
+        news = []
+        for item in soup.select('.card-title a')[:5]:
+            title = item.text.strip()
+            link = "https://www.coindesk.com" + item['href']
+            news.append(f"• {title}\n{link}")
+        
+        return news
     except Exception as e:
-        logger.error(f"Ошибка CoinMarketCap: {str(e)}")
+        logger.error(f"Ошибка парсинга: {str(e)}")
         return None
 
-def generate_educational_post():
-    """Генерация образовательного контента"""
+def get_crypto_updates():
+    """Парсинг последних обновлений с CoinTelegraph"""
     try:
-        response = openai.ChatCompletion.create(
-            model="deepseek-chat",
-            messages=[{
-                "role": "user",
-                "content": "Объясни концепцию блокчейна простым языком. Примеры, эмодзи, markdown."
-            }],
-            temperature=0.6,
-            max_tokens=800
-        )
-        return f"📚 *Образовательный раздел*\n\n{response.choices[0].message.content}\n\n#Обучение"
+        url = "https://cointelegraph.com/rss"
+        response = requests.get(url, timeout=15)
+        soup = BeautifulSoup(response.text, 'xml')
+        
+        updates = []
+        for item in soup.select('item')[:5]:
+            title = item.title.text.strip()
+            link = item.link.text.strip()
+            updates.append(f"• {title}\n{link}")
+        
+        return updates
     except Exception as e:
-        logger.error(f"Ошибка генерации: {str(e)}")
+        logger.error(f"Ошибка парсинга: {str(e)}")
         return None
 
-def send_post(content):
+def prepare_post():
+    """Формирование поста из случайной новости"""
+    try:
+        sources = [get_coin_news, get_crypto_updates]
+        random_source = random.choice(sources)()
+        
+        if not random_source:
+            return "🔧 Сегодня технические неполадки. Попробуйте позже."
+            
+        post = "📰 *Свежие крипто-новости*\n\n"
+        post += random.choice(random_source)[:1000]
+        post += "\n\n#КриптоНовости #Актуальное"
+        return post
+    except Exception as e:
+        logger.error(f"Ошибка подготовки поста: {str(e)}")
+        return None
+
+def send_daily_post():
     """Отправка поста в канал"""
     try:
-        if content:
+        post = prepare_post()
+        if post:
             bot.send_message(
                 chat_id=CHANNEL_ID,
-                text=content,
+                text=post,
                 parse_mode="Markdown",
-                disable_web_page_preview=True
+                disable_web_page_preview=False
             )
-            logger.info(f"Отправлено: {datetime.datetime.now(MOSCOW_TZ).strftime('%d.%m %H:%M')}")
+            logger.info(f"Пост отправлен в {datetime.datetime.now(MOSCOW_TZ).strftime('%H:%M')}")
     except Exception as e:
         logger.error(f"Ошибка отправки: {str(e)}")
 
 def setup_scheduler():
     """Настройка расписания"""
-    # Почасовые посты 09:00-21:00
-    scheduler.add_job(
-        lambda: send_post(generate_hourly_post()),
-        CronTrigger(hour='9-21', minute=0)
-    )
+    schedule = {
+        '09:00': 'утренний выпуск',
+        '14:00': 'дневной выпуск',
+        '17:00': 'вечерний выпуск', 
+        '20:00': 'итоги дня'
+    }
     
-    # Рыночная статистика
-    scheduler.add_job(
-        lambda: send_post(fetch_market_data()),
-        CronTrigger(hour='8,22', minute=0)
-    )
-    
-    # Образовательные материалы
-    scheduler.add_job(
-        lambda: send_post(generate_educational_post()),
-        CronTrigger(hour='15,19', minute=30)
-    )
+    for time_str, _ in schedule.items():
+        hour, minute = map(int, time_str.split(':'))
+        scheduler.add_job(
+            send_daily_post,
+            'cron',
+            hour=hour,
+            minute=minute
+        )
 
 @app.route('/')
 def health_check():
-    return "Бот активен", 200
+    return "Crypto News Bot Active", 200
 
 if __name__ == "__main__":
-    os.environ['TZ'] = 'Europe/Moscow'
-    time.tzset()
-    
-    # Запуск планировщика
     setup_scheduler()
     scheduler.start()
     
     # Запуск Flask
-    threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False),
-        daemon=True
-    ).start()
-    
-    # Основной цикл
-    try:
-        while True:
-            time.sleep(3600)
-    except KeyboardInterrupt:
-        scheduler.shutdown()
-        logger.info("Работа бота остановлена")
+    app.run(host='0.0.0.0', port=PORT)
