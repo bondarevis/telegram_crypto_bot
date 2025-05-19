@@ -24,134 +24,127 @@ TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 CMC_API_KEY = "6316a41d-db32-4e49-a2a3-b66b96c663bf"
 DEEPSEEK_API_KEY = "sk-1b4a385cf98446f2995a58ba9a6fd4b8"
-REQUEST_TIMEOUT = 20
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 PORT = 10000
 
 # Инициализация
 app = Flask(__name__)
-bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
+bot = telebot.TeleBot(TOKEN)
 scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 
 # Настройка DeepSeek
 openai.api_key = DEEPSEEK_API_KEY
 openai.api_base = "https://api.deepseek.com/v1"
 
-@app.route('/')
-def health_check():
-    logger.info("Health check received")
-    return "Crypto Bot is Running", 200
-
-def get_current_time():
-    return datetime.datetime.now(MOSCOW_TZ)
-
-def generate_crypto_basics_post():
+def generate_hourly_post():
+    """Генерация почасового поста с помощью AI"""
     try:
         response = openai.ChatCompletion.create(
             model="deepseek-chat",
             messages=[{
                 "role": "user",
-                "content": "Напиши образовательный пост о базовых концепциях криптовалют. Освещи темы: блокчейн, майнинг, смарт-контракты. Пост должен быть понятен новичкам, содержать примеры и эмодзи для наглядности. Форматируй как markdown."
+                "content": "Создай короткий информативный пост о криптовалютах. Темы: DeFi, NFT, Web3. Используй эмодзи и markdown."
             }],
             temperature=0.7,
-            max_tokens=1000
+            max_tokens=500
         )
-        content = response.choices[0].message.content
-        return f"📚 *Основы криптовалют*\n\n{content}\n\n#Обучение #КриптоОсновы"
+        return f"🕒 *Крипто-обновление {datetime.datetime.now(MOSCOW_TZ).strftime('%H:%M')}*\n\n{response.choices[0].message.content}\n\n#Новости"
     except Exception as e:
-        logger.error(f"DeepSeek error: {str(e)}", exc_info=True)
-        return None
+        logger.error(f"Ошибка генерации: {str(e)}")
+        return "🔧 Технические неполадки. Обновление появится позже."
 
 def fetch_market_data():
+    """Получение рыночных данных от CoinMarketCap"""
     try:
         url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-        headers = {
-            "X-CMC_PRO_API_KEY": CMC_API_KEY,
-            "Accept": "application/json"
-        }
-        
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+        response = requests.get(url, headers=headers, timeout=20)
         data = response.json()["data"]
         
-        btc_dominance = round(data["btc_dominance"], 2)
-        total_market_cap = round(data["quote"]["USD"]["total_market_cap"] / 1e12, 2)
-        volume_24h = round(data["quote"]["USD"]["total_volume_24h"] / 1e9, 2)
-        
         return (
-            "📊 *Рыночная статистика*\n\n"
-            f"• Общая капитализация: ${total_market_cap}T\n"
-            f"• Доминация BTC: {btc_dominance}%\n"
-            f"• Объем за 24ч: ${volume_24h}B\n"
-            f"• Данные: CoinMarketCap"
+            "📈 *Рыночный отчет*\n\n"
+            f"• Капитализация: ${round(data['quote']['USD']['total_market_cap']/1e12, 2)}T\n"
+            f"• BTC Доминация: {round(data['btc_dominance'], 2)}%\n"
+            f"• Объем 24ч: ${round(data['quote']['USD']['total_volume_24h']/1e9, 2)}B\n"
+            "#Статистика #Рынок"
         )
     except Exception as e:
-        logger.error(f"CoinMarketCap error: {str(e)}", exc_info=True)
+        logger.error(f"Ошибка CoinMarketCap: {str(e)}")
         return None
 
-def generate_market_post():
+def generate_educational_post():
+    """Генерация образовательного контента"""
     try:
-        market_data = fetch_market_data()
-        return f"{market_data}\n\n#Рынок #Статистика" if market_data else None
-    except Exception as e:
-        logger.error(f"Market post error: {str(e)}")
-        return None
-
-def send_post(post):
-    try:
-        if not post:
-            logger.warning("Attempt to send empty post")
-            return
-            
-        logger.info(f"Sending post at {get_current_time()}")
-        bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=post,
-            parse_mode="Markdown",
-            disable_web_page_preview=True
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",
+            messages=[{
+                "role": "user",
+                "content": "Объясни концепцию блокчейна простым языком. Примеры, эмодзи, markdown."
+            }],
+            temperature=0.6,
+            max_tokens=800
         )
-        logger.info("Post sent successfully")
+        return f"📚 *Образовательный раздел*\n\n{response.choices[0].message.content}\n\n#Обучение"
     except Exception as e:
-        logger.error(f"Send error: {str(e)}")
+        logger.error(f"Ошибка генерации: {str(e)}")
+        return None
+
+def send_post(content):
+    """Отправка поста в канал"""
+    try:
+        if content:
+            bot.send_message(
+                chat_id=CHANNEL_ID,
+                text=content,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            logger.info(f"Отправлено: {datetime.datetime.now(MOSCOW_TZ).strftime('%d.%m %H:%M')}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки: {str(e)}")
 
 def setup_scheduler():
-    logger.info("Initializing scheduler...")
+    """Настройка расписания"""
+    # Почасовые посты 09:00-21:00
+    scheduler.add_job(
+        lambda: send_post(generate_hourly_post()),
+        CronTrigger(hour='9-21', minute=0)
+    )
     
     # Рыночная статистика
     scheduler.add_job(
-        lambda: send_post(generate_market_post()),
-        CronTrigger(hour='8,22', minute='0', timezone=MOSCOW_TZ)
+        lambda: send_post(fetch_market_data()),
+        CronTrigger(hour='8,22', minute=0)
     )
     
-    # Образовательные посты
+    # Образовательные материалы
     scheduler.add_job(
-        lambda: send_post(generate_crypto_basics_post()),
-        CronTrigger(hour='15,19', minute='30', timezone=MOSCOW_TZ)
+        lambda: send_post(generate_educational_post()),
+        CronTrigger(hour='15,19', minute=30)
     )
-    
-    logger.info(f"Total jobs scheduled: {len(scheduler.get_jobs())}")
+
+@app.route('/')
+def health_check():
+    return "Бот активен", 200
 
 if __name__ == "__main__":
     os.environ['TZ'] = 'Europe/Moscow'
     time.tzset()
-    logger.info(f"Server started at {get_current_time()}")
     
-    # Настройка планировщика
+    # Запуск планировщика
     setup_scheduler()
     scheduler.start()
     
     # Запуск Flask
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False),
+    threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=PORT, debug=False),
         daemon=True
-    )
-    flask_thread.start()
+    ).start()
     
-    # Ожидание прерывания
+    # Основной цикл
     try:
         while True:
             time.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Shutting down scheduler...")
+    except KeyboardInterrupt:
         scheduler.shutdown()
-        logger.info("Bot stopped successfully")
+        logger.info("Работа бота остановлена")
