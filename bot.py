@@ -29,78 +29,50 @@ scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 sent_posts = set()
 
 def enhance_translation(text):
-    """Профессиональное улучшение перевода"""
-    crypto_terms = {
-        r'\bBTC\b': 'BTC',
-        r'\bblockchain\b': 'блокчейн',
-        r'\bmalware\b': 'вредоносное ПО',
-        r'\bmining\b': 'майнинг',
-        r'\bwallet\b': 'криптокошелек',
-        r'\bhash rate\b': 'хешрейт',
-        r'\bnode\b': 'нода',
-        r'\bdecentralized\b': 'децентрализованный',
-        r'\bexchange\b': 'биржа',
-        r'\bprivate key\b': 'приватный ключ'
+    """Профессиональная постобработка перевода"""
+    crypto_dict = {
+        r'\bTaps\b': 'использует',
+        r'\bпростоя\b': 'неиспользуемых',
+        r'\bодабок\b': 'решений',
+        r'\bDEFI\b': 'DeFi',
+        r'\bхолостое время\b': 'периоды простоя',
+        r'\bзарплату\b': 'заработную плату',
+        r'\bконсервативные запасы\b': 'резервные средства'
     }
     
-    # Замена терминов
-    for term, replacement in crypto_terms.items():
-        text = re.sub(term, replacement, text, flags=re.IGNORECASE)
+    for pattern, replacement in crypto_dict.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     
-    # Улучшение грамматики
-    improvements = {
-        r'(\s)наряду(\s)': r'\1параллельно\2',
-        r'загрузили скомпрометированное': 'распространили взломанное',
-        r'полный сброс системы': 'полная переустановка системы',
-        r'глобального загрузки': 'глобального распространения'
-    }
-    
-    for pattern, replacement in improvements.items():
-        text = re.sub(pattern, replacement, text)
-    
+    text = re.sub(r'\s+', ' ', text)
     return text
 
 def translate_text(text):
-    """Многоуровневый перевод с постобработкой"""
     try:
-        # Первичный перевод
         translated = GoogleTranslator(source='auto', target='ru').translate(text)
-        
-        # Улучшение перевода
-        enhanced = enhance_translation(translated)
-        
-        # Коррекция окончаний
-        enhanced = re.sub(r'(\b\w+)ые(\b)', r'\1ые\2', enhanced)
-        enhanced = re.sub(r'(\b\w+)ие(\b)', r'\1ие\2', enhanced)
-        
-        return enhanced
-    
+        return enhance_translation(translated)
     except Exception as e:
         logger.error(f"Ошибка перевода: {str(e)}")
         return text
 
 def extract_meaningful_content(soup):
-    """Извлечение ключевых данных статьи"""
+    """Извлечение ключевого контента"""
     content = []
     
-    # Основные селекторы для крипто-новостей
     selectors = [
-        {'class': ['post-content', 'article__content']},
+        {'class': ['article__content', 'post-content']},
         {'itemprop': 'articleBody'},
-        {'class': 'content'},
         'article'
     ]
     
     for selector in selectors:
         main_content = soup.find('div', selector) or soup.find('article', selector)
         if main_content:
-            paragraphs = []
             for p in main_content.find_all('p'):
                 text = p.get_text(strip=True)
-                if len(text) > 100 and not re.search(r'(?:http|@|©|Следите за обновлениями)', text):
-                    paragraphs.append(text)
-            if paragraphs:
-                return ' '.join(paragraphs[:8])  # Берем первые 8 значимых абзацев
+                if 50 < len(text) < 500 and not re.search(r'(?:http|@|©|Спонсор)', text):
+                    content.append(text)
+            if content:
+                return ' '.join(content[:6])
     
     return None
 
@@ -118,44 +90,17 @@ def get_post_content(url):
         if not raw_content:
             return None
         
-        # Перевод и улучшение
-        translated = translate_text(raw_content[:2500])
-        
-        # Разделение на логические блоки
-        blocks = re.split(r'(?<=[.!?])\s+', translated)
-        
-        # Фильтрация и объединение
-        meaningful_blocks = [
-            b for b in blocks 
-            if 50 < len(b) < 350 
-            and not re.search(r'(?:http|@|реклама|спонсор)', b, re.I)
-        ]
-        
-        return meaningful_blocks[:5]  # Не более 5 блоков
+        translated = translate_text(raw_content[:2000])
+        sentences = re.split(r'(?<=[.!?])\s+', translated)
+        return [s for s in sentences if 30 < len(s) < 300][:5]
     
     except Exception as e:
-        logger.error(f"Ошибка обработки контента: {str(e)}")
+        logger.error(f"Ошибка контента: {str(e)}")
         return None
 
 def format_post(blocks):
-    """Профессиональное форматирование поста"""
-    formatted = []
-    
-    for i, block in enumerate(blocks, 1):
-        # Удаление лишних пробелов
-        block = re.sub(r'\s+', ' ', block).strip()
-        
-        # Первое предложение жирным
-        if i == 1:
-            formatted.append(f"**{block}**")
-        else:
-            # Маркировка пунктов
-            formatted.append(f"🔸 {block}")
-        
-        # Добавляем абзац после каждых двух пунктов
-        if i % 2 == 0 and i != len(blocks):
-            formatted.append("")
-    
+    """Чистое форматирование поста"""
+    formatted = [f"🔸 {block.strip()}" for block in blocks if block.strip()]
     return '\n\n'.join(formatted)
 
 def get_crypto_news():
@@ -166,7 +111,7 @@ def get_crypto_news():
         soup = BeautifulSoup(response.text, 'xml')
         
         news = []
-        for item in soup.select('item')[:10]:
+        for item in soup.select('item')[:15]:
             try:
                 title = translate_text(item.title.text.strip())
                 link = item.link.text.strip()
@@ -185,12 +130,12 @@ def get_crypto_news():
                         'hash': post_hash
                     })
             except Exception as e:
-                logger.error(f"Ошибка обработки: {str(e)}")
+                logger.error(f"Ошибка новости: {str(e)}")
         
         return news
     
     except Exception as e:
-        logger.error(f"Ошибка получения новостей: {str(e)}")
+        logger.error(f"Ошибка RSS: {str(e)}")
         return []
 
 def prepare_post():
@@ -205,7 +150,7 @@ def prepare_post():
         post = f"🚀 *{post_data['title']}*\n\n"
         post += f"{post_data['content']}\n\n"
         post += f"🔗 [Читать полный отчет]({post_data['link']})\n"
-        post += "\n#КриптоНовости #Безопасность #Блокчейн"
+        post += "\n#КриптоНовости #Финансы #Блокчейн"
         
         return post
     
@@ -223,24 +168,22 @@ def send_daily_post():
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
-            logger.info("Пост отправлен успешно")
+            logger.info("Успешная публикация")
     except Exception as e:
         logger.error(f"Ошибка отправки: {str(e)}")
 
 def setup_scheduler():
-    schedule_times = ['09:00', '14:00', '17:00', '20:00', '20:30', '21:00', '21:30']
-    
+    """Почасовая публикация с 08:00 до 22:00"""
     if scheduler.get_jobs():
         scheduler.remove_all_jobs()
     
-    for time_str in schedule_times:
-        hour, minute = map(int, time_str.split(':'))
+    for hour in range(8, 23):
         scheduler.add_job(
             send_daily_post,
             'cron',
             hour=hour,
-            minute=minute,
-            id=f'job_{time_str.replace(":", "")}'
+            minute=0,
+            id=f'hourly_{hour}'
         )
 
 @app.route('/')
@@ -251,7 +194,7 @@ def initialize():
     if not scheduler.running:
         setup_scheduler()
         scheduler.start()
-        logger.info("Планировщик инициализирован")
+        logger.info("Планировщик активирован")
 
 initialize()
 
