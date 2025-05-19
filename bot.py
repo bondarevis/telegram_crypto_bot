@@ -8,85 +8,102 @@ import logging
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
 import random
+import hashlib
+from deep_translator import GoogleTranslator
 
-# Инициализация Flask приложения
 app = Flask(__name__)
 
-# Настройка логов
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация
 TOKEN = os.getenv("TELEGRAM_TOKEN", "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@Digital_Fund_1")
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Инициализация бота
 bot = telebot.TeleBot(TOKEN)
-
-# Инициализация планировщика
 scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
+sent_posts = set()
 
-def get_crypto_news():
-    """Парсинг новостей с CoinTelegraph"""
+def translate_text(text):
     try:
-        url = "https://cointelegraph.com/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9'
-        }
-        
+        return GoogleTranslator(source='auto', target='ru').translate(text)
+    except Exception as e:
+        logger.error(f"Ошибка перевода: {str(e)}")
+        return text
+
+def get_post_content(url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         response = requests.get(url, headers=headers, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        news = []
-        # Парсинг главных новостей
-        for article in soup.select('article')[:5]:
-            title = article.find('span', {'class': 'post__title'})
-            if title:
-                title = title.text.strip()
-                link = article.find('a')['href']
-                if not link.startswith('http'):
-                    link = f"https://cointelegraph.com{link}"
-                news.append(f"• {title}\n{link}")
+        # Парсинг основного содержимого
+        content = ""
+        main_content = soup.find('div', class_='post-content')
+        if main_content:
+            paragraphs = main_content.find_all('p')[:5]
+            content = ' '.join([p.text.strip() for p in paragraphs if p.text.strip()])
         
-        # Если новостей мало, используем RSS
-        if len(news) < 3:
-            rss_url = "https://cointelegraph.com/rss"
-            rss_response = requests.get(rss_url, headers=headers, timeout=20)
-            rss_soup = BeautifulSoup(rss_response.text, 'xml')
-            
-            for item in rss_soup.select('item')[:5]:
-                title = item.title.text.strip()
+        return content[:1000] + '...' if content else "Читать полностью по ссылке"
+    except Exception as e:
+        logger.error(f"Ошибка парсинга контента: {str(e)}")
+        return ""
+
+def get_crypto_news():
+    try:
+        url = "https://cointelegraph.com/rss"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(response.text, 'xml')
+        
+        news = []
+        for item in soup.select('item')[:10]:
+            try:
+                title = translate_text(item.title.text.strip())
                 link = item.link.text.strip()
-                news.append(f"• {title}\n{link}")
+                content = translate_text(get_post_content(link))
+                
+                # Генерируем уникальный хеш для поста
+                post_hash = hashlib.md5(f"{title}{link}".encode()).hexdigest()
+                
+                if post_hash not in sent_posts:
+                    news.append({
+                        'title': title,
+                        'content': content,
+                        'link': link,
+                        'hash': post_hash
+                    })
+            except Exception as e:
+                logger.error(f"Ошибка обработки новости: {str(e)}")
         
         return news
-    
     except Exception as e:
-        logger.error(f"Ошибка парсинга: {str(e)}", exc_info=True)
-        return None
+        logger.error(f"Ошибка парсинга RSS: {str(e)}")
+        return []
 
 def prepare_post():
-    """Генерация поста"""
     try:
         news = get_crypto_news()
         if not news:
             return None
-            
-        post = "🚀 *Свежие крипто-новости*\n\n"
-        post += random.choice(news)
-        post += f"\n\n📅 _Время публикации: {datetime.datetime.now(MOSCOW_TZ).strftime('%H:%M')}_\n#Криптовалюта #Новости"
+        
+        post_data = random.choice(news)
+        sent_posts.add(post_data['hash'])
+        
+        post = f"🚀 *{post_data['title']}*\n\n"
+        post += f"{post_data['content']}\n\n"
+        post += f"[Читать полностью]({post_data['link']})\n\n"
+        post += "#Криптовалюта #Новости #Аналитика"
+        
         return post
     except Exception as e:
         logger.error(f"Ошибка подготовки поста: {str(e)}")
         return None
 
 def send_daily_post():
-    """Отправка поста"""
     try:
         post = prepare_post()
         if post:
@@ -94,27 +111,26 @@ def send_daily_post():
                 chat_id=CHANNEL_ID,
                 text=post,
                 parse_mode="Markdown",
-                disable_web_page_preview=True
+                disable_web_page_preview=False
             )
-            logger.info(f"Успешная отправка в {datetime.datetime.now(MOSCOW_TZ).strftime('%H:%M')}")
+            logger.info(f"Успешная отправка поста")
     except Exception as e:
         logger.error(f"Ошибка отправки: {str(e)}")
 
 def setup_scheduler():
-    """Настройка расписания"""
-    schedule_times = ['09:00', '14:00', '17:00', '20:00', '20:30']
+    schedule_times = ['09:00', '14:00', '17:00', '20:00', '20:30', '21:00']
     
     if scheduler.get_jobs():
         scheduler.remove_all_jobs()
     
-    for idx, time_str in enumerate(schedule_times):
+    for time_str in schedule_times:
         hour, minute = map(int, time_str.split(':'))
         scheduler.add_job(
             send_daily_post,
             'cron',
             hour=hour,
             minute=minute,
-            id=f'job_{idx}'
+            id=f'job_{time_str}'
         )
 
 @app.route('/')
@@ -127,7 +143,6 @@ def initialize():
         scheduler.start()
         logger.info("Планировщик успешно запущен")
 
-# Инициализация при старте
 initialize()
 
 if __name__ == "__main__":
