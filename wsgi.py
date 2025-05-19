@@ -1,7 +1,4 @@
-from app import app, initialize
-
-# Инициализация планировщика при старте через Gunicorn
-initialize()
+from bot import app
 
 if __name__ == "__main__":
     app.run()
