@@ -37,7 +37,7 @@ bot = telebot.TeleBot(TOKEN, num_threads=1, skip_pending=True)
 
 @app.route('/')
 def health_check():
-    logger.info("Получен health-check запрос")
+    logger.info("Health check received")
     return "Crypto Bot is Running", 200
 
 def get_current_time():
@@ -57,7 +57,7 @@ def generate_crypto_basics_post():
         content = response.choices[0].message.content
         return f"📚 *Основы криптовалют*\n\n{content}\n\n#Обучение #КриптоОсновы"
     except Exception as e:
-        logger.error(f"Ошибка DeepSeek: {str(e)}", exc_info=True)
+        logger.error(f"DeepSeek error: {str(e)}", exc_info=True)
         return None
 
 def fetch_market_data():
@@ -81,7 +81,7 @@ def fetch_market_data():
             f"• Данные: CoinMarketCap"
         )
     except Exception as e:
-        logger.error(f"Ошибка CoinMarketCap: {str(e)}", exc_info=True)
+        logger.error(f"CoinMarketCap error: {str(e)}", exc_info=True)
         return None
 
 def parse_rbc_crypto():
@@ -97,7 +97,7 @@ def parse_rbc_crypto():
         
         article = soup.select_one('.js-news-feed-item:not(.news-feed__item--hidden)')
         if not article:
-            logger.warning("Не найдено новых статей на РБК")
+            logger.warning("No articles found on RBC")
             return None
             
         title = article.select_one('.news-feed__item__title').text.strip()
@@ -114,7 +114,7 @@ def parse_rbc_crypto():
             'link': link
         }
     except Exception as e:
-        logger.error(f"Ошибка парсинга РБК: {str(e)}", exc_info=True)
+        logger.error(f"RBC parsing error: {str(e)}", exc_info=True)
         return None
 
 def generate_market_post():
@@ -122,7 +122,7 @@ def generate_market_post():
         market_data = fetch_market_data()
         return f"{market_data}\n\n#Рынок #Статистика" if market_data else None
     except Exception as e:
-        logger.error(f"Ошибка генерации рыночного поста: {str(e)}")
+        logger.error(f"Market post error: {str(e)}")
         return None
 
 def generate_news_post(news_item):
@@ -138,13 +138,13 @@ def generate_news_post(news_item):
             "#Новости #Аналитика"
         )
     except Exception as e:
-        logger.error(f"Ошибка генерации новостного поста: {str(e)}")
+        logger.error(f"News post error: {str(e)}")
         return None
 
 def send_post(post):
     try:
         if not post:
-            logger.warning("Попытка отправить пустой пост")
+            logger.warning("Attempt to send empty post")
             return
             
         bot.send_message(
@@ -153,12 +153,12 @@ def send_post(post):
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
-        logger.info("Пост успешно отправлен")
+        logger.info("Post sent successfully")
     except Exception as e:
-        logger.error(f"Ошибка отправки поста: {str(e)}")
+        logger.error(f"Send error: {str(e)}")
 
 def schedule_tasks():
-    logger.info(f"Инициализация расписания в {get_current_time()}")
+    logger.info(f"Initializing scheduler at {get_current_time()}")
     
     # Рыночная статистика
     schedule.every().day.at("08:00").do(lambda: send_post(generate_market_post()))
@@ -168,28 +168,29 @@ def schedule_tasks():
     for hour in range(9, 22):
         schedule.every().day.at(f"{hour:02d}:00").do(
             lambda: send_post(generate_news_post(parse_rbc_crypto()))
+        )
     
     # Образовательные посты
     schedule.every().day.at("15:30").do(lambda: send_post(generate_crypto_basics_post()))
     schedule.every().day.at("19:30").do(lambda: send_post(generate_crypto_basics_post()))
     
-    logger.info(f"Активные задачи: {len(schedule.get_jobs())}")
+    logger.info(f"Scheduled jobs: {len(schedule.get_jobs())}")
 
 def run_scheduler():
-    logger.info("Запуск планировщика задач")
+    logger.info("Starting scheduler")
     while True:
         try:
             schedule.run_pending()
             time.sleep(1)
         except Exception as e:
-            logger.error(f"Критическая ошибка планировщика: {str(e)}")
+            logger.error(f"Scheduler error: {str(e)}")
             time.sleep(10)
 
 if __name__ == "__main__":
     # Настройка времени
     os.environ['TZ'] = 'Europe/Moscow'
     time.tzset()
-    logger.info(f"Текущее серверное время: {get_current_time()}")
+    logger.info(f"Server time: {get_current_time()}")
     
     # Инициализация задач
     schedule_tasks()
@@ -205,6 +206,6 @@ if __name__ == "__main__":
     try:
         run_scheduler()
     except KeyboardInterrupt:
-        logger.info("Остановка бота...")
+        logger.info("Stopping bot...")
     except Exception as e:
-        logger.error(f"Фатальная ошибка: {str(e)}")
+        logger.error(f"Fatal error: {str(e)}")
