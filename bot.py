@@ -1,4 +1,4 @@
-# app.py
+import os
 import telebot
 import requests
 from bs4 import BeautifulSoup
@@ -8,6 +8,9 @@ import logging
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
 import random
+
+# Инициализация Flask приложения
+app = Flask(__name__)
 
 # Настройка логов
 logging.basicConfig(
@@ -21,9 +24,10 @@ TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Инициализация
-app = Flask(__name__)
+# Инициализация бота
 bot = telebot.TeleBot(TOKEN)
+
+# Инициализация планировщика
 scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 
 def get_coin_news():
@@ -91,7 +95,11 @@ def setup_scheduler():
 def health_check():
     return "Crypto News Bot Active", 200
 
-if __name__ == "__main__":
+# Инициализация планировщика при старте
+def initialize():
     setup_scheduler()
     scheduler.start()
+
+if __name__ == "__main__":
+    initialize()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
