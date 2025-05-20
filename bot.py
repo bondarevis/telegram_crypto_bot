@@ -53,16 +53,16 @@ def get_article_content(url):
     try:
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
         response.raise_for_status()
-        
+
         soup = BeautifulSoup(response.text, 'html.parser')
         content = []
-        
+
         main_selectors = [
             {'class': 'post-content'},
             {'itemprop': 'articleBody'},
             'article'
         ]
-        
+
         for selector in main_selectors:
             elements = soup.find_all('div', selector) or soup.find_all('article', selector)
             if elements:
@@ -72,7 +72,7 @@ def get_article_content(url):
                         content.append(text)
                 if content:
                     return ' '.join(content[:6])
-        
+
         logger.warning("Content not found")
         return None
 
@@ -86,10 +86,10 @@ def prepare_post():
         rss_url = "https://cointelegraph.com/rss"
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
-        
+
         soup = BeautifulSoup(response.text, 'xml')
         items = soup.select('item')[:20]
-        
+
         if not items:
             logger.error("Empty RSS feed")
             return None
@@ -98,30 +98,30 @@ def prepare_post():
             item = random.choice(items)
             title = GoogleTranslator(source='auto', target='ru').translate(item.title.text.strip())
             link = item.link.text.strip()
-            
+
             post_hash = hashlib.md5(f"{title}{link}".encode()).hexdigest()
             if post_hash in sent_posts:
                 continue
-                
+
             content = get_article_content(link)
             if not content:
                 continue
-                
+
             translated = enhance_translation(
                 GoogleTranslator(source='auto', target='ru').translate(content[:2000])
             )
-            
+
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', translated) if 30 < len(s) < 300]
             if len(sentences) < 3:
                 continue
-                
+
             post = (
                 f"🚀 *{title}*\n\n" +
                 '\n\n🔸 '.join(sentences[:4]) +
                 f"\n\n🔗 [Читать полностью]({link})" +
                 "\n#КриптоНовости #Аналитика"
             )
-            
+
             sent_posts.add(post_hash)
             logger.info(f"New post prepared: {post_hash}")
             return post
