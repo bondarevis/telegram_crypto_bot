@@ -61,12 +61,13 @@ def get_article_content(url):
         content = []
 
         main_selectors = [
-            {'class': 'article__content'},
-            {'class': 'content'}
+            {'class': 'post-content'},
+            {'itemprop': 'articleBody'},
+            'article'
         ]
 
         for selector in main_selectors:
-            elements = soup.find_all('div', selector)
+            elements = soup.find_all('div', selector) or soup.find_all('article', selector)
             if elements:
                 for p in elements[0].find_all('p'):
                     text = p.get_text(strip=True)
@@ -85,7 +86,7 @@ def get_article_content(url):
 def prepare_post():
     """Подготовка поста с проверкой всех этапов"""
     try:
-        rss_url = "https://news.bitcoin.com/feed/"
+        rss_url = "https://www.cryptocompare.com/rss/news/"
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
 
