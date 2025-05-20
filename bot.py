@@ -1,3 +1,4 @@
+from flask import Flask
 from telethon import TelegramClient, events
 import logging
 import os
@@ -20,6 +21,8 @@ CHANNEL_ID = "@Digital_Fund_1"  # ID вашего канала
 
 # Инициализация клиента
 client = TelegramClient('session_name', API_ID, API_HASH)
+
+app = Flask(__name__)
 
 async def send_post():
     """Отправка поста"""
@@ -50,6 +53,17 @@ async def main():
         else:
             time.sleep(30)
 
-if __name__ == "__main__":
+@app.route('/')
+def home():
+    return "Hello, World!"
+
+def run_scheduler():
+    """Запуск планировщика в отдельном потоке"""
     with client:
         client.loop.run_until_complete(main())
+
+if __name__ == '__main__':
+    # Запуск Flask приложения
+    Thread(target=run_scheduler).start()
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
