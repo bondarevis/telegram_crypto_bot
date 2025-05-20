@@ -86,7 +86,7 @@ def get_article_content(url):
 def prepare_post():
     """Подготовка поста с проверкой всех этапов"""
     try:
-        rss_url = "https://crypto.rbc.ru/rss"
+        rss_url = "https://www.cryptocompare.com/rss/news/"
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
 
