@@ -139,6 +139,7 @@ def prepare_post():
 def send_post():
     """Безопасная отправка поста"""
     try:
+        logger.info("Attempting to send post...")
         post = prepare_post()
         if post:
             bot.send_message(
@@ -185,6 +186,7 @@ if __name__ == "__main__":
     log_system_info()
     run_scheduler()
     # Временный вызов для тестирования
+    logger.info("Sending initial post...")
     send_post()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
