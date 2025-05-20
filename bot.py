@@ -5,6 +5,10 @@ import os
 from datetime import datetime, timedelta
 from threading import Thread
 import time
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения
+load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(
@@ -13,11 +17,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
+# Ваши API данные
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
+
+# Вывод значений переменных окружения для проверки
+print(f"API_ID: {API_ID}")
+print(f"API_HASH: {API_HASH}")
+print(f"TOKEN: {TOKEN}")
+print(f"CHANNEL_ID: {CHANNEL_ID}")
 
 # Список каналов для парсинга
 SOURCE_CHANNELS = [
