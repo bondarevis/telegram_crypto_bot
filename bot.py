@@ -13,11 +13,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ваши API данные
-API_ID = 27952573  # Ваш api_id
-API_HASH = '1bca07bccb96a13a6cc2fa2ca54b063a'  # Ваш api_hash
-TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"  # Ваш токен бота
-CHANNEL_ID = "@Digital_Fund_1"  # ID вашего канала
+# Загрузка переменных окружения
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+TOKEN = os.getenv("TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
 # Список каналов для парсинга
 SOURCE_CHANNELS = [
