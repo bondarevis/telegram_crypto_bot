@@ -155,7 +155,9 @@ def scheduler_loop():
     global is_scheduler_running
     while True:
         now = datetime.now(MOSCOW_TZ)
+        logger.info(f"Current time: {now.strftime('%H:%M')}")
         if 8 <= now.hour < 23 and now.minute == 0:
+            logger.info("Sending post...")
             send_post()
             time.sleep(60)
         else:
