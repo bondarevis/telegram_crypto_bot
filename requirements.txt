@@ -4,7 +4,6 @@ beautifulsoup4==4.12.3
 Flask==3.0.2
 pytz==2024.1
 apscheduler==3.10.4
-lxml==5.2.1
-gunicorn==21.2.0
 deep-translator==1.11.4
 regex==2024.5.15
+gunicorn==21.2.0
