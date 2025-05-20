@@ -54,7 +54,7 @@ def get_article_content(url):
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(response.text, 'lxml')
         content = []
 
         main_selectors = [
@@ -87,7 +87,7 @@ def prepare_post():
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'xml')
+        soup = BeautifulSoup(response.text, 'lxml-xml')
         items = soup.select('item')[:20]
 
         if not items:
