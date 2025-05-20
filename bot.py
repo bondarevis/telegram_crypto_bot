@@ -5,12 +5,13 @@ from bs4 import BeautifulSoup
 import pytz
 import logging
 from flask import Flask
-from apscheduler.schedulers.background import BackgroundScheduler
 import random
 import hashlib
 from deep_translator import GoogleTranslator
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from threading import Thread
+import time
 
 app = Flask(__name__)
 
@@ -20,13 +21,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@Digital_Fund_1")
+TOKEN = os.getenv("8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk")
+CHANNEL_ID = os.getenv("@Digital_Fund_1")
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
 bot = telebot.TeleBot(TOKEN)
-scheduler = BackgroundScheduler(timezone=MOSCOW_TZ)
 sent_posts = set()
+is_scheduler_running = False
 
 def log_system_info():
     """Логирование системной информации"""
@@ -56,7 +57,6 @@ def get_article_content(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         content = []
         
-        # Поиск основного контента
         main_selectors = [
             {'class': 'post-content'},
             {'itemprop': 'articleBody'},
@@ -83,7 +83,6 @@ def get_article_content(url):
 def prepare_post():
     """Подготовка поста с проверкой всех этапов"""
     try:
-        # Получение новостей
         rss_url = "https://cointelegraph.com/rss"
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
@@ -95,8 +94,7 @@ def prepare_post():
             logger.error("Empty RSS feed")
             return None
 
-        # Выбор и обработка новости
-        for _ in range(3):  # 3 попытки найти новую новость
+        for _ in range(3):
             item = random.choice(items)
             title = GoogleTranslator(source='auto', target='ru').translate(item.title.text.strip())
             link = item.link.text.strip()
@@ -113,7 +111,6 @@ def prepare_post():
                 GoogleTranslator(source='auto', target='ru').translate(content[:2000])
             )
             
-            # Форматирование
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', translated) if 30 < len(s) < 300]
             if len(sentences) < 3:
                 continue
@@ -137,7 +134,7 @@ def prepare_post():
         return None
 
 def send_post():
-    """Безопасная отправка поста с повтором"""
+    """Безопасная отправка поста"""
     try:
         post = prepare_post()
         if post:
@@ -150,49 +147,39 @@ def send_post():
             logger.info(f"Post sent at {datetime.now(MOSCOW_TZ).strftime('%H:%M')}")
     except Exception as e:
         logger.error(f"Send error: {str(e)}")
-        # Повторная попытка через 5 минут
-        scheduler.add_job(
-            send_post,
-            'date',
-            run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=5),
-            id=f'retry_{datetime.now().timestamp()}'
-        )
+        time.sleep(300)
+        send_post()
 
-def init_scheduler():
-    """Инициализация планировщика с проверкой"""
-    if not scheduler.running:
-        scheduler.start()
-        logger.info("Scheduler started")
-        
-        # Очистка старых задач
-        scheduler.remove_all_jobs()
-        
-        # Добавление почасовых задач
-        for hour in range(8, 23):
-            scheduler.add_job(
-                send_post,
-                'cron',
-                hour=hour,
-                minute=0,
-                id=f'hour_{hour}'
-            )
-        logger.info(f"Added {23-8} hourly jobs (08:00-22:00 MSK)")
-        
-        # Тестовая отправка при старте
-        scheduler.add_job(
-            send_post,
-            'date',
-            run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=30),
-            id='initial_test'
-        )
+def scheduler_loop():
+    """Цикл планировщика"""
+    global is_scheduler_running
+    while True:
+        now = datetime.now(MOSCOW_TZ)
+        if 8 <= now.hour < 23 and now.minute == 0:
+            send_post()
+            time.sleep(60)
+        else:
+            time.sleep(30)
 
 @app.route('/')
 def health_check():
     logger.info("Health check passed")
     return "Bot is operational", 200
 
+def run_scheduler():
+    """Запуск планировщика в отдельном потоке"""
+    global is_scheduler_running
+    if not is_scheduler_running:
+        is_scheduler_running = True
+        logger.info("Starting scheduler thread")
+        scheduler_thread = Thread(target=scheduler_loop)
+        scheduler_thread.daemon = True
+        scheduler_thread.start()
+
 if __name__ == "__main__":
     log_system_info()
-    init_scheduler()
+    run_scheduler()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
+else:
+    run_scheduler()
