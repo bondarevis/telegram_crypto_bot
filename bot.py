@@ -35,28 +35,6 @@ def log_system_info():
     logger.info(f"Bot token: {'set' if TOKEN else 'not set'}")
     logger.info(f"Channel ID: {CHANNEL_ID}")
 
-def check_rss_feed_access():
-    """Проверка доступа к RSS-ленте"""
-    rss_url = "https://cryptonews.com/news/rss/"
-    try:
-        response = requests.get(rss_url, timeout=15)
-        response.raise_for_status()
-        logger.info("Successfully accessed the RSS feed")
-    except Exception as e:
-        logger.error(f"Failed to access the RSS feed: {str(e)}")
-
-def check_website_access(url):
-    """Проверка доступа к сайту для парсинга"""
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        logger.info(f"Successfully accessed the website: {url}")
-    except Exception as e:
-        logger.error(f"Failed to access the website {url}: {str(e)}")
-
 def enhance_translation(text):
     """Улучшение перевода криптотерминов"""
     term_map = {
@@ -108,7 +86,7 @@ def get_article_content(url):
 def prepare_post():
     """Подготовка поста с проверкой всех этапов"""
     try:
-        rss_url = "https://cryptonews.com/news/rss/"
+        rss_url = "https://news.bitcoin.com/feed/"
         response = requests.get(rss_url, timeout=15)
         response.raise_for_status()
 
@@ -206,8 +184,6 @@ def run_scheduler():
 
 if __name__ == "__main__":
     log_system_info()
-    check_rss_feed_access()
-    check_website_access("https://cryptonews.com")
     run_scheduler()
     # Временный вызов для тестирования
     logger.info("Sending initial post...")
