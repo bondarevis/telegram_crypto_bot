@@ -90,6 +90,9 @@ if __name__ == '__main__':
     # Запуск Flask приложения
     Thread(target=run_scheduler).start()
     port = int(os.environ.get('PORT', 10000))
+
+    # Отправка начального поста сразу после запуска
     with client:
         client.loop.run_until_complete(initial_post())
+
     app.run(host='0.0.0.0', port=port)
