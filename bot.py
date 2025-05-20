@@ -5,7 +5,6 @@ import os
 from datetime import datetime, timedelta
 from threading import Thread
 import time
-import re
 
 # Настройка логирования
 logging.basicConfig(
@@ -51,19 +50,12 @@ async def parse_channels():
             for channel in SOURCE_CHANNELS:
                 try:
                     async for message in client.iter_messages(channel, limit=1):
-                        # Форматирование сообщения
-                        formatted_message = format_message(message.text)
-                        await send_post(formatted_message)
+                        await send_post(message.text)
                 except Exception as e:
                     logger.error(f"Error parsing channel {channel}: {str(e)}")
             time.sleep(3600)  # Ждем час перед следующей проверкой
         else:
             time.sleep(60)
-
-def format_message(text):
-    """Форматирование сообщения"""
-    # Пример форматирования, вы можете изменить его в соответствии с вашими требованиями
-    return text
 
 @app.route('/')
 def home():
@@ -74,8 +66,20 @@ def run_scheduler():
     with client:
         client.loop.run_until_complete(parse_channels())
 
+async def initial_post():
+    """Отправка начального поста"""
+    for channel in SOURCE_CHANNELS:
+        try:
+            async for message in client.iter_messages(channel, limit=1):
+                await send_post(message.text)
+                break  # Отправляем только одно сообщение
+        except Exception as e:
+            logger.error(f"Error sending initial post from channel {channel}: {str(e)}")
+
 if __name__ == '__main__':
     # Запуск Flask приложения
     Thread(target=run_scheduler).start()
     port = int(os.environ.get('PORT', 10000))
+    with client:
+        client.loop.run_until_complete(initial_post())
     app.run(host='0.0.0.0', port=port)
