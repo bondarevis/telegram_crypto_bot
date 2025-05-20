@@ -7,3 +7,4 @@ deep-translator==1.11.4
 regex==2024.5.15
 gunicorn==21.2.0
 lxml==5.2.1
+telethon==1.24.0
