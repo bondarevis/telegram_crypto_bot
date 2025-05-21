@@ -22,9 +22,10 @@ API_HASH = os.getenv("API_HASH")
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 
-# Хранилище опубликованных URL
+# Хранилище URL
 posted_urls = set()
 
+# Источники новостей
 NEWS_SOURCES = [
     {
         "name": "Cointelegraph",
@@ -46,24 +47,27 @@ NEWS_SOURCES = [
     }
 ]
 
-client = TelegramClient('crypto_news_bot', API_ID, API_HASH)
-lock = asyncio.Lock()
+# Инициализация клиента
+client = TelegramClient('news_bot_session', API_ID, API_HASH)
 
 def normalize_url(url):
+    """Нормализация URL"""
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="", fragment=""))
 
-async def send_startup_message():
+async def send_start_message():
+    """Отправка стартового сообщения"""
     try:
         await client.send_message(
             CHANNEL_ID,
-            "🚀 Бот успешно запущен!\n"
-            "⏰ Режим работы: 08:00-22:00 по МСК"
+            "🤖 Бот активирован!\n"
+            "⌚ Режим работы: 08:00-22:00 МСК"
         )
     except Exception as e:
-        logger.error(f"Ошибка стартового сообщения: {str(e)}")
+        logger.error(f"Ошибка стартового уведомления: {str(e)}")
 
-async def fetch_news(session, source):
+async def fetch_articles(session, source):
+    """Парсинг статей"""
     try:
         async with session.get(source['url']) as response:
             html = await response.text()
@@ -76,67 +80,76 @@ async def fetch_news(session, source):
                 
                 if title and link:
                     raw_url = link['href']
-                    article_url = normalize_url(
+                    full_url = normalize_url(
                         raw_url if raw_url.startswith('http') 
-                        else source['url'] + raw_url.lstrip('/')
+                        else f"{source['url']}{raw_url.lstrip('/')}"
                     )
                     
-                    if article_url not in posted_urls:
+                    if full_url not in posted_urls:
                         articles.append({
                             'source': source['name'],
                             'title': title.text.strip(),
-                            'url': article_url
+                            'url': full_url
                         })
-                        posted_urls.add(article_url)
+                        posted_urls.add(full_url)
             return articles
     except Exception as e:
         logger.error(f"Ошибка парсинга {source['name']}: {str(e)}")
         return []
 
-async def post_article(article):
+async def publish_post(article):
+    """Публикация поста"""
     try:
         message = (
-            f"📌 **{article['source']}**\n"
-            f"➖ {article['title']}\n"
-            f"🔗 [Читать]({article['url']})"
+            f"📣 **{article['source']}**\n"
+            f"▫️ {article['title']}\n"
+            f"🔗 [Источник]({article['url']})"
         )
         await client.send_message(CHANNEL_ID, message, link_preview=False)
-        logger.info(f"Опубликовано: {article['title'][:50]}...")
-        await asyncio.sleep(10)  # Увеличенная задержка
+        logger.info(f"Успешно: {article['title'][:50]}...")
+        await asyncio.sleep(15)  # Задержка для предотвращения флуда
+    except errors.FloodWaitError as e:
+        logger.error(f"Требуется пауза: {e.seconds} сек.")
+        await asyncio.sleep(e.seconds)
     except Exception as e:
         logger.error(f"Ошибка публикации: {str(e)}")
 
-async def main_loop():
+async def monitoring_loop():
+    """Основной цикл"""
     async with aiohttp.ClientSession() as session:
         while True:
-            current_time = datetime.now().time()
-            if time(8, 0) <= current_time <= time(22, 0):
+            now = datetime.now().time()
+            if time(8, 0) <= now <= time(22, 0):
                 try:
-                    logger.info("Начало цикла проверки...")
+                    logger.info("Запуск проверки источников...")
                     
                     for source in NEWS_SOURCES:
-                        articles = await fetch_news(session, source)
+                        articles = await fetch_articles(session, source)
                         for article in articles:
-                            await post_article(article)
+                            await publish_post(article)
                     
-                    await asyncio.sleep(3600)  # 1 час
+                    await asyncio.sleep(3600)  # Интервал 1 час
                 except Exception as e:
-                    logger.error(f"Ошибка: {str(e)}")
-                    await asyncio.sleep(300)
+                    logger.error(f"Ошибка цикла: {str(e)}")
+                    await asyncio.sleep(600)
             else:
-                await asyncio.sleep(1800)  # 30 минут
+                # Расчет времени до следующего рабочего периода
+                next_run = datetime.now().replace(hour=8, minute=0, second=0)
+                if datetime.now().hour >= 22:
+                    next_run += timedelta(days=1)
+                delay = (next_run - datetime.now()).total_seconds()
+                logger.info(f"Ожидание до {next_run.strftime('%H:%M')}")
+                await asyncio.sleep(delay)
 
-async def run_bot():
+async def main():
+    """Точка входа"""
     await client.start(bot_token=TOKEN)
-    await send_startup_message()
-    await main_loop()
+    await send_start_message()
+    await monitoring_loop()
 
 if __name__ == '__main__':
     try:
         with client:
-            client.loop.run_until_complete(run_bot())
-    except errors.FloodWaitError as e:
-        logger.error(f"Требуется ожидание: {e.seconds} секунд")
-        # Можно добавить автоматическое ожидание здесь
+            client.loop.run_until_complete(main())
     except Exception as e:
-        logger.error(f"Критическая ошибка: {str(e)}")
+        logger.error(f"Фатальная ошибка: {str(e)}")
