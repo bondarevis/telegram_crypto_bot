@@ -1,6 +1,11 @@
 services:
   - type: worker
-    name: telegram-bot
+    name: crypto-news-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
-  
+    startCommand: python bot.py
+    envVars:
+      - key: API_ID
+        value: 27952573
+      - key: API_HASH
+        value: 1bca07bccb96a13a6cc2fa2ca54b063a
