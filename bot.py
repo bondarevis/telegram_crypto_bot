@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from bs4 import BeautifulSoup
@@ -108,7 +108,7 @@ async def scheduled_parser():
     async with aiohttp.ClientSession() as session:
         while True:
             current_time = datetime.now().time()
-            if time(8,0) <= current_time <= time(22,0):
+            if time(8, 0) <= current_time <= time(22, 0):
                 try:
                     logger.info("Начало цикла парсинга...")
                     
@@ -117,11 +117,12 @@ async def scheduled_parser():
                         new_articles = [
                             a for a in articles
                             if a['url'] not in last_articles[source['name']]
+                        ]  # Исправлено: закрывающая скобка
                         
                         for article in new_articles:
                             await post_to_channel(article)
                             last_articles[source['name']].add(article['url'])
-                            await asyncio.sleep(5)  # Задержка между постами
+                            await asyncio.sleep(5)
                         
                         logger.info(f"{source['name']}: найдено {len(new_articles)} новых статей")
                     
@@ -131,7 +132,6 @@ async def scheduled_parser():
                     logger.error(f"Ошибка в основном цикле: {str(e)}")
                     await asyncio.sleep(300)
             else:
-                # Ожидание до начала рабочего времени
                 now = datetime.now()
                 next_run = now.replace(hour=8, minute=0, second=0)
                 if now.hour >= 22:
