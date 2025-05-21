@@ -1,7 +1,9 @@
 import os
 import logging
 import asyncio
+import json
 from datetime import datetime, time, timedelta
+from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from bs4 import BeautifulSoup
@@ -22,6 +24,7 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
+HISTORY_FILE = "posted_urls.json"
 
 # Список источников для парсинга
 NEWS_SOURCES = [
@@ -47,6 +50,25 @@ NEWS_SOURCES = [
 
 # Инициализация Telegram клиента
 client = TelegramClient('crypto_news_bot', API_ID, API_HASH).start(bot_token=TOKEN)
+lock = asyncio.Lock()  # Блокировка для предотвращения параллельных выполнений
+
+def normalize_url(url):
+    """Нормализация URL с удалением параметров"""
+    parsed = urlparse(url)
+    return urlunparse(parsed._replace(query="", fragment=""))
+
+async def load_history():
+    """Загрузка истории опубликованных URL"""
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {source['name']: [] for source in NEWS_SOURCES}
+
+async def save_history(history):
+    """Сохранение истории в файл"""
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(history, f)
 
 async def send_startup_message():
     """Отправка сообщения при запуске"""
@@ -73,9 +95,11 @@ async def fetch_news(session, source):
                 link = item.select_one(source['selectors']['link'])
                 
                 if title and link:
-                    article_url = link['href']
-                    if not article_url.startswith('http'):
-                        article_url = source['url'] + article_url.lstrip('/')
+                    raw_url = link['href']
+                    article_url = normalize_url(
+                        raw_url if raw_url.startswith('http') 
+                        else source['url'] + raw_url.lstrip('/')
+                    )
                     
                     articles.append({
                         'source': source['name'],
@@ -98,47 +122,53 @@ async def post_to_channel(article):
         )
         await client.send_message(CHANNEL_ID, message, link_preview=False)
         logger.info(f"Опубликовано: {article['title'][:50]}...")
+        return True
     except Exception as e:
         logger.error(f"Ошибка публикации: {str(e)}")
+        return False
 
 async def scheduled_parser():
-    """Планировщик с учетом временного окна"""
-    last_articles = {source['name']: set() for source in NEWS_SOURCES}
+    """Планировщик с улучшенной защитой от дубликатов"""
+    history = await load_history()
+    last_articles = {source['name']: set(history.get(source['name'], [])) for source in NEWS_SOURCES}
     
     async with aiohttp.ClientSession() as session:
         while True:
-            current_time = datetime.now().time()
-            if time(8, 0) <= current_time <= time(22, 0):
-                try:
-                    logger.info("Начало цикла парсинга...")
-                    
-                    for source in NEWS_SOURCES:
-                        articles = await fetch_news(session, source)
-                        new_articles = [
-                            a for a in articles
-                            if a['url'] not in last_articles[source['name']]
-                        ]  # Исправлено: закрывающая скобка
+            async with lock:  # Блокировка выполнения
+                current_time = datetime.now().time()
+                if time(8, 0) <= current_time <= time(22, 0):
+                    try:
+                        logger.info("Начало цикла парсинга...")
                         
-                        for article in new_articles:
-                            await post_to_channel(article)
-                            last_articles[source['name']].add(article['url'])
-                            await asyncio.sleep(5)
+                        for source in NEWS_SOURCES:
+                            articles = await fetch_news(session, source)
+                            new_articles = [
+                                a for a in articles
+                                if a['url'] not in last_articles[source['name']]
+                            ]
+                            
+                            for article in new_articles:
+                                success = await post_to_channel(article)
+                                if success:
+                                    last_articles[source['name']].add(article['url'])
+                                    await asyncio.sleep(5)
+                            
+                            logger.info(f"{source['name']}: новых статей {len(new_articles)}")
                         
-                        logger.info(f"{source['name']}: найдено {len(new_articles)} новых статей")
+                        await save_history({k: list(v) for k, v in last_articles.items()})
+                        await asyncio.sleep(3600)
                     
-                    await asyncio.sleep(3600)  # Повтор каждый час
-                
-                except Exception as e:
-                    logger.error(f"Ошибка в основном цикле: {str(e)}")
-                    await asyncio.sleep(300)
-            else:
-                now = datetime.now()
-                next_run = now.replace(hour=8, minute=0, second=0)
-                if now.hour >= 22:
-                    next_run += timedelta(days=1)
-                wait_seconds = (next_run - now).total_seconds()
-                logger.info(f"Не рабочее время. Следующая проверка в {next_run.strftime('%H:%M')}")
-                await asyncio.sleep(wait_seconds)
+                    except Exception as e:
+                        logger.error(f"Ошибка в основном цикле: {str(e)}")
+                        await asyncio.sleep(300)
+                else:
+                    now = datetime.now()
+                    next_run = now.replace(hour=8, minute=0, second=0)
+                    if now.hour >= 22:
+                        next_run += timedelta(days=1)
+                    wait_seconds = (next_run - now).total_seconds()
+                    logger.info(f"Не рабочее время. Следующая проверка в {next_run.strftime('%H:%M')}")
+                    await asyncio.sleep(wait_seconds)
 
 async def main():
     """Основная функция"""
