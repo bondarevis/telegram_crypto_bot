@@ -1,5 +1,5 @@
 services:
-  - type: worker  # Изменено с web на worker
+  - type: worker
     name: telegram-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
