@@ -1,10 +1,8 @@
-from flask import Flask
 from telethon import TelegramClient, events
 import logging
 import os
+import asyncio
 from datetime import datetime, timedelta
-from threading import Thread
-import time
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -23,12 +21,6 @@ API_HASH = os.getenv("API_HASH")
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 
-# Вывод значений переменных окружения для проверки
-logger.info(f"API_ID: {API_ID}")
-logger.info(f"API_HASH: {API_HASH}")
-logger.info(f"TOKEN: {TOKEN}")
-logger.info(f"CHANNEL_ID: {CHANNEL_ID}")
-
 # Список каналов для парсинга
 SOURCE_CHANNELS = [
     "@RBCCrypto",
@@ -36,71 +28,60 @@ SOURCE_CHANNELS = [
     "@cryptwit"
 ]
 
-# Инициализация клиента
-client = TelegramClient('session_name', API_ID, API_HASH)
-
-app = Flask(__name__)
+client = TelegramClient('session_name', API_ID, API_HASH).start(bot_token=TOKEN)
 
 async def send_post(message):
     """Отправка поста"""
     try:
-        logger.info(f"Attempting to send post: {message[:50]}...")  # Логируем начало отправки
+        logger.info(f"Attempting to send post: {message[:50]}...")
         await client.send_message(CHANNEL_ID, message)
         logger.info(f"Post sent at {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         logger.error(f"Send error: {str(e)}")
-        time.sleep(300)
+        await asyncio.sleep(300)
         await send_post(message)
 
 async def parse_channels():
     """Парсинг каналов"""
+    logger.info("Starting scheduler...")
     while True:
-        now = datetime.now()
-        logger.info(f"Current time: {now.strftime('%H:%M')}")
-        if 8 <= now.hour < 23:
-            for channel in SOURCE_CHANNELS:
-                try:
-                    logger.info(f"Parsing channel: {channel}")
-                    async for message in client.iter_messages(channel, limit=1):
-                        logger.info(f"Found message: {message.text[:50]}...")
-                        await send_post(message.text)
-                except Exception as e:
-                    logger.error(f"Error parsing channel {channel}: {str(e)}")
-            time.sleep(3600)  # Ждем час перед следующей проверкой
-        else:
-            time.sleep(60)
-
-@app.route('/')
-def home():
-    return "Hello, World!"
-
-def run_scheduler():
-    """Запуск планировщика в отдельном потоке"""
-    with client:
-        logger.info("Starting scheduler...")
-        client.loop.run_until_complete(parse_channels())
+        try:
+            now = datetime.now()
+            logger.info(f"Current time: {now.strftime('%H:%M')}")
+            
+            # Отправка постов сразу при запуске
+            if not hasattr(parse_channels, 'initial_run'):
+                await initial_post()
+                parse_channels.initial_run = True
+            
+            # Регулярная отправка по расписанию
+            if 8 <= now.hour < 23:
+                for channel in SOURCE_CHANNELS:
+                    try:
+                        logger.info(f"Parsing channel: {channel}")
+                        async for message in client.iter_messages(channel, limit=1):
+                            logger.info(f"Found message: {message.text[:50]}...")
+                            await send_post(message.text)
+                    except Exception as e:
+                        logger.error(f"Error parsing channel {channel}: {str(e)}")
+                await asyncio.sleep(3600)  # Ждем час
+            else:
+                await asyncio.sleep(60)
+        except Exception as e:
+            logger.error(f"Main loop error: {str(e)}")
+            await asyncio.sleep(60)
 
 async def initial_post():
     """Отправка начального поста"""
-    logger.info("Sending initial post...")
+    logger.info("Sending initial posts...")
     for channel in SOURCE_CHANNELS:
         try:
-            logger.info(f"Attempting to fetch message from channel: {channel}")
             async for message in client.iter_messages(channel, limit=1):
-                logger.info(f"Sending initial post from channel {channel}")
                 await send_post(message.text)
-                break  # Отправляем только одно сообщение
+                break
         except Exception as e:
-            logger.error(f"Error sending initial post from channel {channel}: {str(e)}")
+            logger.error(f"Initial post error for {channel}: {str(e)}")
 
 if __name__ == '__main__':
-    # Запуск Flask приложения
-    Thread(target=run_scheduler).start()
-    port = int(os.environ.get('PORT', 10000))
-
-    # Отправка начального поста сразу после запуска
     with client:
-        client.loop.run_until_complete(initial_post())
-
-    app.run(host='0.0.0.0', port=port)
- 
+        client.loop.run_until_complete(parse_channels())
