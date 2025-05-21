@@ -24,10 +24,10 @@ TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 
 # Вывод значений переменных окружения для проверки
-print(f"API_ID: {API_ID}")
-print(f"API_HASH: {API_HASH}")
-print(f"TOKEN: {TOKEN}")
-print(f"CHANNEL_ID: {CHANNEL_ID}")
+logger.info(f"API_ID: {API_ID}")
+logger.info(f"API_HASH: {API_HASH}")
+logger.info(f"TOKEN: {TOKEN}")
+logger.info(f"CHANNEL_ID: {CHANNEL_ID}")
 
 # Список каналов для парсинга
 SOURCE_CHANNELS = [
@@ -44,6 +44,7 @@ app = Flask(__name__)
 async def send_post(message):
     """Отправка поста"""
     try:
+        logger.info(f"Attempting to send post: {message[:50]}...")  # Логируем начало отправки
         await client.send_message(CHANNEL_ID, message)
         logger.info(f"Post sent at {datetime.now().strftime('%H:%M')}")
     except Exception as e:
@@ -59,7 +60,9 @@ async def parse_channels():
         if 8 <= now.hour < 23:
             for channel in SOURCE_CHANNELS:
                 try:
+                    logger.info(f"Parsing channel: {channel}")
                     async for message in client.iter_messages(channel, limit=1):
+                        logger.info(f"Found message: {message.text[:50]}...")
                         await send_post(message.text)
                 except Exception as e:
                     logger.error(f"Error parsing channel {channel}: {str(e)}")
@@ -74,13 +77,17 @@ def home():
 def run_scheduler():
     """Запуск планировщика в отдельном потоке"""
     with client:
+        logger.info("Starting scheduler...")
         client.loop.run_until_complete(parse_channels())
 
 async def initial_post():
     """Отправка начального поста"""
+    logger.info("Sending initial post...")
     for channel in SOURCE_CHANNELS:
         try:
+            logger.info(f"Attempting to fetch message from channel: {channel}")
             async for message in client.iter_messages(channel, limit=1):
+                logger.info(f"Sending initial post from channel {channel}")
                 await send_post(message.text)
                 break  # Отправляем только одно сообщение
         except Exception as e:
