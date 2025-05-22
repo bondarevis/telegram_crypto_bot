@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import json
 from datetime import datetime, time, timedelta
 from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
@@ -16,151 +17,105 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация
-API_ID = int(os.getenv("API_ID", 27952573))
-API_HASH = os.getenv("API_HASH", "1bca07bccb96a13a6cc2fa2ca54b063a")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
+HISTORY_FILE = "/tmp/posted_urls.json"  # Путь для Render Persistent Storage
 
-# Хранилище URL
-posted_urls = set()
+NEWS_SOURCES = [...]  # Ваши источники без изменений
 
-NEWS_SOURCES = [
-    {
-        "name": "Cointelegraph",
-        "url": "https://cointelegraph.com/",
-        "selectors": {
-            "articles": "div.posts-listing__item",
-            "title": "span.posts-listing__title",
-            "link": "a.posts-listing__item__permalink"
-        }
-    },
-    {
-        "name": "Coindesk",
-        "url": "https://www.coindesk.com/",
-        "selectors": {
-            "articles": "div.main-body section div.card",
-            "title": "div.card-title a",
-            "link": "div.card-title a"
-        }
-    }
-]
-
-# Инициализация клиента без файла сессии
 client = TelegramClient(None, API_ID, API_HASH)
+lock = asyncio.Lock()
 
-def normalize_url(url: str) -> str:
-    """Нормализация URL-адресов"""
+def normalize_url(url):
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="", fragment=""))
 
+async def load_history():
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+async def save_history(urls):
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(list(urls), f)
+
 async def safe_start():
-    """Безопасная инициализация бота"""
     try:
         await client.start(bot_token=BOT_TOKEN)
-        logger.info("✅ Успешная аутентификация через бот-токен")
+        logger.info("✅ Auth success")
         return True
     except errors.FloodWaitError as e:
-        logger.error(f"⏳ Требуется ожидание: {e.seconds} секунд")
+        logger.error(f"⏳ Flood wait: {e.seconds}s")
         await asyncio.sleep(e.seconds)
         return False
     except Exception as e:
-        logger.error(f"🚨 Критическая ошибка аутентификации: {str(e)}")
+        logger.error(f"🚨 Auth error: {str(e)}")
         return False
 
-async def fetch_articles(session: aiohttp.ClientSession, source: dict):
-    """Получение статей из источника"""
+async def send_start_message():
     try:
-        async with session.get(source['url']) as response:
-            html = await response.text()
-            soup = BeautifulSoup(html, 'lxml')
-            articles = []
-            
-            for item in soup.select(source['selectors']['articles']):
-                title = item.select_one(source['selectors']['title'])
-                link = item.select_one(source['selectors']['link'])
+        if not await client.is_connected():
+            await client.connect()
+        
+        # Проверка последнего сообщения
+        last_msg = await client.get_messages(CHANNEL_ID, limit=1)
+        if not last_msg or "активирован" not in last_msg[0].text:
+            await client.send_message(CHANNEL_ID, "🚀 Бот успешно запущен!")
+    except Exception as e:
+        logger.error(f"⚠️ Startup error: {str(e)}")
+
+async def fetch_and_publish(session):
+    posted_urls = await load_history()
+    new_urls = set()
+    
+    for source in NEWS_SOURCES:
+        try:
+            async with session.get(source['url']) as response:
+                html = await response.text()
+                soup = BeautifulSoup(html, 'lxml')
                 
-                if title and link:
-                    raw_url = link['href']
-                    full_url = normalize_url(
-                        raw_url if raw_url.startswith('http') 
-                        else f"{source['url']}{raw_url.lstrip('/')}"
-                    )
+                for item in soup.select(source['selectors']['articles']):
+                    title = item.select_one(source['selectors']['title'])
+                    link = item.select_one(source['selectors']['link'])
                     
-                    if full_url not in posted_urls:
-                        articles.append({
-                            'source': source['name'],
-                            'title': title.text.strip(),
-                            'url': full_url
-                        })
-                        posted_urls.add(full_url)
-            return articles
-    except Exception as e:
-        logger.error(f"⚠️ Ошибка парсинга {source['name']}: {str(e)}")
-        return []
+                    if title and link:
+                        url = normalize_url(link['href'])
+                        if url not in posted_urls:
+                            message = f"📌 {title.text.strip()}\n🔗 {url}"
+                            await client.send_message(CHANNEL_ID, message)
+                            new_urls.add(url)
+                            await asyncio.sleep(30)  # Задержка между постами
+        except Exception as e:
+            logger.error(f"🔧 Error processing {source['name']}: {str(e)}")
+    
+    if new_urls:
+        await save_history(posted_urls | new_urls)
 
-async def publish_post(article: dict):
-    """Публикация поста с защитой от флуда"""
-    try:
-        message = (
-            f"📌 **{article['source']}**\n"
-            f"▫️ {article['title']}\n"
-            f"🔗 [Читать статью]({article['url']})"
-        )
-        await client.send_message(CHANNEL_ID, message, link_preview=False)
-        logger.info(f"📤 Успешно опубликовано: {article['title'][:50]}...")
-        await asyncio.sleep(20)  # Задержка между постами
-    except errors.FloodWaitError as e:
-        logger.error(f"⏸️ Пауза из-за флуда: {e.seconds} сек.")
-        await asyncio.sleep(e.seconds)
-    except Exception as e:
-        logger.error(f"❌ Ошибка публикации: {str(e)}")
-
-async def monitoring_loop():
-    """Основной рабочий цикл"""
+async def main_loop():
     async with aiohttp.ClientSession() as session:
         while True:
-            current_time = datetime.now().time()
-            if time(8, 0) <= current_time <= time(22, 0):
-                try:
-                    logger.info("🔄 Начало цикла проверки источников")
-                    
-                    for source in NEWS_SOURCES:
-                        articles = await fetch_articles(session, source)
-                        for article in articles:
-                            await publish_post(article)
-                    
-                    logger.info("⏳ Следующая проверка через 1 час")
-                    await asyncio.sleep(3600)
-                except Exception as e:
-                    logger.error(f"🔧 Ошибка в основном цикле: {str(e)}")
-                    await asyncio.sleep(600)
+            now = datetime.now()
+            if time(8, 0) <= now.time() <= time(22, 0):
+                async with lock:
+                    await fetch_and_publish(session)
+                    await asyncio.sleep(3600)  # Каждый час
             else:
-                now = datetime.now()
-                next_run = now.replace(hour=8, minute=0, second=0)
-                if now.hour >= 22:
-                    next_run += timedelta(days=1)
+                # Расчет времени до 08:00
+                next_run = now.replace(hour=8, minute=0, second=0) + timedelta(days=1 if now.hour >= 22 else 0)
                 delay = (next_run - now).total_seconds()
-                logger.info(f"⏰ Режим ожидания до {next_run.strftime('%H:%M')}")
+                logger.info(f"⏳ До следующей проверки: {delay//3600} ч.")
                 await asyncio.sleep(delay)
-
-async def main():
-    """Точка входа приложения"""
-    if await safe_start():
-        try:
-            await client.send_message(CHANNEL_ID, "🤖 Бот успешно активирован!")
-            await monitoring_loop()
-        except Exception as e:
-            logger.error(f"🚨 Фатальная ошибка: {str(e)}")
-        finally:
-            await client.disconnect()
-    else:
-        logger.error("🛑 Не удалось инициализировать бота")
 
 if __name__ == '__main__':
     try:
-        client.loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("🔌 Принудительное завершение работы")
+        client.loop.run_until_complete(safe_start())
+        client.loop.run_until_complete(send_start_message())
+        client.loop.run_until_complete(main_loop())
     except Exception as e:
-        logger.error(f"💥 Необработанная ошибка: {str(e)}")
+        logger.error(f"💥 Critical error: {str(e)}")
+    finally:
+        client.loop.run_until_complete(client.disconnect())
