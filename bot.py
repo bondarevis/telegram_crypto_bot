@@ -37,23 +37,37 @@ def save_posted_news(posted):
 def get_crypto_news():
     logger.info("Начало парсинга новостей")
     url = "https://www.coindesk.com/"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
     
-    news = []
-    for article in soup.find_all('article')[:10]:
-        try:
-            title = article.find('h2').text.strip()
-            link = article.find('a')['href']
-            time = article.find('time')['datetime']
-            news.append({
-                'title': title,
-                'link': link,
-                'time': time
-            })
-        except Exception as e:
-            logger.error(f"Ошибка парсинга: {str(e)}")
-    return news
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        news = []
+        for article in soup.find_all('article')[:10]:
+            try:
+                title = article.find('h2').text.strip()
+                link = article.find('a')['href']
+                time = article.find('time')['datetime']
+                
+                # Проверка на относительные ссылки
+                if not link.startswith('http'):
+                    link = f'https://www.coindesk.com{link}'
+                    
+                news.append({
+                    'title': title,
+                    'link': link,
+                    'time': time
+                })
+            except Exception as e:
+                logger.error(f"Ошибка парсинга статьи: {str(e)}")
+        return news
+    except Exception as e:
+        logger.error(f"Ошибка получения новостей: {str(e)}")
+        return []
 
 def post_news():
     logger.info("Запуск процедуры публикации")
@@ -76,18 +90,22 @@ def post_news():
                     f"🕒 {datetime.fromisoformat(article['time']).strftime('%d.%m.%Y %H:%M')}"
                 )
                 
-                # Публикация поста
-                bot.send_message(
-                    chat_id=CHANNEL_ID,
-                    text=message,
-                    parse_mode='Markdown'
-                )
-                logger.info(f"Опубликован пост: {article['title']}")
-                
-                # Сохранение в истории
-                posted.append(article['title'])
-                save_posted_news(posted)
-                break
+                try:
+                    # Публикация поста
+                    bot.send_message(
+                        chat_id=CHANNEL_ID,
+                        text=message,
+                        parse_mode='Markdown'
+                    )
+                    logger.info(f"Опубликован пост: {article['title']}")
+                    
+                    # Сохранение в истории
+                    posted.append(article['title'])
+                    save_posted_news(posted)
+                    break
+                except Exception as e:
+                    logger.error(f"Ошибка публикации: {str(e)}")
+                    continue
 
 @app.route('/')
 def home():
@@ -107,7 +125,10 @@ def run_scheduler():
     )
     
     # Немедленный запуск при старте
-    post_news()
+    try:
+        post_news()
+    except Exception as e:
+        logger.error(f"Ошибка при стартовой публикации: {str(e)}")
     
     scheduler.start()
 
