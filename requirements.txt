@@ -1,7 +1,9 @@
 python-telegram-bot==13.7
-requests==2.26.0
-beautifulsoup4==4.10.0
-APScheduler==3.6.3
-Flask==2.0.2
+requests==2.31.0
+beautifulsoup4==4.12.3
+APScheduler==3.10.1
+Flask==2.0.3
 Werkzeug==2.0.3
-pytz==2021.3
+pytz==2024.1
+lxml==5.2.1
+python-dotenv==1.0.1
