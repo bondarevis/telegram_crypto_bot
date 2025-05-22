@@ -9,3 +9,7 @@ services:
         value: 27952573
       - key: API_HASH
         value: 1bca07bccb96a13a6cc2fa2ca54b063a
+    disk:
+      name: data
+      mountPath: /tmp
+      sizeGB: 1
