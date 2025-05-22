@@ -32,15 +32,23 @@ logger = logging.getLogger(__name__)
 
 def load_posted_news():
     try:
+        if not os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'w') as f:
+                json.dump([], f)
+            return []
+            
         with open(DATA_FILE, 'r') as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.warning(f"Ошибка загрузки истории: {str(e)}")
+    except Exception as e:
+        logger.error(f"Ошибка загрузки истории: {str(e)}")
         return []
 
 def save_posted_news(posted):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(posted, f, indent=2)
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(posted, f, indent=2)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения истории: {str(e)}")
 
 def get_crypto_news():
     logger.info("Начало парсинга новостей")
@@ -59,11 +67,11 @@ def get_crypto_news():
         news = []
         
         # Актуальные селекторы для Coindesk 2024
-        articles = soup.select('div.article-card, div.article-cardstyles__AcTitle-sc-q1x8lc-1')
+        articles = soup.select('div[data-testid="river"] article')
         
         for article in articles[:15]:
             try:
-                title_elem = article.find('h2', class_='typography__StyledTypography-owin6q-0')
+                title_elem = article.find('h2', {'data-testid': 'headline'})
                 link_elem = article.find('a', href=True)
                 time_elem = article.find('time')
                 
@@ -85,7 +93,7 @@ def get_crypto_news():
                 logger.debug(f"Найдена статья: {title}")
                 
             except Exception as e:
-                logger.error(f"Ошибка парсинга статьи: {str(e)}")
+                logger.error(f"Ошибка парсинга: {str(e)}")
         return news
     except Exception as e:
         logger.error(f"Ошибка получения новостей: {str(e)}")
