@@ -22,6 +22,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
 HISTORY_FILE = "/tmp/posted_urls.json"
+STARTUP_FLAG_FILE = "/tmp/startup.flag"
 
 NEWS_SOURCES = [
     {
@@ -76,13 +77,12 @@ async def safe_start() -> bool:
         return False
 
 async def send_start_message():
+    """Отправка стартового сообщения без проверки истории"""
     try:
-        if not client.is_connected():  # Исправлено: убран await
-            await client.connect()
-        
-        last_msg = await client.get_messages(CHANNEL_ID, limit=1)
-        if not last_msg or "Бот активирован" not in last_msg[0].text:
+        if not os.path.exists(STARTUP_FLAG_FILE):
             await client.send_message(CHANNEL_ID, "🚀 Бот активирован!")
+            with open(STARTUP_FLAG_FILE, 'w') as f:
+                f.write("1")
     except Exception as e:
         logger.error(f"⚠️ Ошибка запуска: {str(e)}")
 
