@@ -9,21 +9,25 @@ from telethon import TelegramClient, errors
 from bs4 import BeautifulSoup
 import aiohttp
 
+# Загрузка конфигурации из .env
 load_dotenv()
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+# Конфигурация (значения по умолчанию для тестирования)
+API_ID = int(os.getenv("API_ID", 27952573))          # Получить на my.telegram.org
+API_HASH = os.getenv("API_HASH", "1bca07bccb96a13a6cc2fa2ca54b063a")  # Ваш секретный хэш
 BOT_TOKEN = "8067270518:AAFir3k_EuRhNlGF9bD9ER4VHQevld-rquk"
 CHANNEL_ID = "@Digital_Fund_1"
-HISTORY_FILE = "/tmp/posted_urls.json"
-STARTUP_FLAG_FILE = "/tmp/startup.flag"
+HISTORY_FILE = "/tmp/posted_urls.json"       # Для Render Persistent Storage
+STARTUP_FLAG = "/tmp/first_run.flag"         # Флаг первого запуска
 
+# Источники новостей
 NEWS_SOURCES = [
     {
         "name": "Cointelegraph",
@@ -45,14 +49,17 @@ NEWS_SOURCES = [
     }
 ]
 
+# Инициализация Telegram клиента
 client = TelegramClient(None, API_ID, API_HASH)
-lock = asyncio.Lock()
+lock = asyncio.Lock()  # Для предотвращения конкурентного доступа
 
 def normalize_url(url: str) -> str:
+    """Приводит URL к единому формату, удаляя параметры"""
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="", fragment=""))
 
 async def load_history() -> set:
+    """Загружает историю опубликованных URL"""
     try:
         with open(HISTORY_FILE, 'r') as f:
             return set(json.load(f))
@@ -60,10 +67,12 @@ async def load_history() -> set:
         return set()
 
 async def save_history(urls: set):
+    """Сохраняет историю в файл"""
     with open(HISTORY_FILE, 'w') as f:
         json.dump(list(urls), f)
 
 async def safe_start() -> bool:
+    """Безопасная инициализация бота"""
     try:
         await client.start(bot_token=BOT_TOKEN)
         logger.info("✅ Успешная аутентификация")
@@ -77,16 +86,21 @@ async def safe_start() -> bool:
         return False
 
 async def send_start_message():
-    """Отправка стартового сообщения без проверки истории"""
+    """Отправляет сообщение только при первом запуске"""
     try:
-        if not os.path.exists(STARTUP_FLAG_FILE):
-            await client.send_message(CHANNEL_ID, "🚀 Бот активирован!")
-            with open(STARTUP_FLAG_FILE, 'w') as f:
+        if not os.path.exists(STARTUP_FLAG):
+            await client.send_message(
+                CHANNEL_ID,
+                "🤖 Бот активирован! Ожидайте новостей с 08:00 до 22:00 по МСК."
+            )
+            with open(STARTUP_FLAG, 'w') as f:
                 f.write("1")
+            logger.info("Стартовое сообщение отправлено")
     except Exception as e:
         logger.error(f"⚠️ Ошибка запуска: {str(e)}")
 
 async def fetch_articles(session: aiohttp.ClientSession, source: dict):
+    """Парсит статьи с указанного источника"""
     try:
         async with session.get(source['url']) as response:
             html = await response.text()
@@ -98,11 +112,15 @@ async def fetch_articles(session: aiohttp.ClientSession, source: dict):
                 link = item.select_one(source['selectors']['link'])
                 
                 if title and link:
-                    url = normalize_url(link['href'])
+                    raw_url = link['href']
+                    full_url = normalize_url(
+                        raw_url if raw_url.startswith('http') 
+                        else f"{source['url']}{raw_url.lstrip('/')}"
+                    )
                     articles.append({
                         'source': source['name'],
                         'title': title.text.strip(),
-                        'url': url
+                        'url': full_url
                     })
             return articles
     except Exception as e:
@@ -110,6 +128,7 @@ async def fetch_articles(session: aiohttp.ClientSession, source: dict):
         return []
 
 async def publish_posts(articles: list, history: set):
+    """Публикует новые статьи с защитой от дубликатов"""
     new_urls = set()
     for article in articles:
         if article['url'] not in history:
@@ -121,45 +140,57 @@ async def publish_posts(articles: list, history: set):
                 )
                 await client.send_message(CHANNEL_ID, message, link_preview=False)
                 new_urls.add(article['url'])
-                await asyncio.sleep(30)
+                await asyncio.sleep(30)  # Задержка между публикациями
             except Exception as e:
                 logger.error(f"❌ Ошибка публикации: {str(e)}")
     return new_urls
 
 async def main_loop():
+    """Основной рабочий цикл с расписанием"""
     async with aiohttp.ClientSession() as session:
         while True:
-            current_time = datetime.now().time()
+            now = datetime.now()
+            current_time = now.time()
+            
+            # Рабочее время: 08:00-22:00
             if time(8, 0) <= current_time <= time(22, 0):
-                async with lock:
+                async with lock:  # Блокировка для конкурентного доступа
                     try:
                         history = await load_history()
                         total_new = 0
                         
+                        # Парсинг и публикация для каждого источника
                         for source in NEWS_SOURCES:
                             articles = await fetch_articles(session, source)
                             new_urls = await publish_posts(articles, history)
                             total_new += len(new_urls)
                             history.update(new_urls)
                         
+                        # Сохранение истории если есть новые статьи
                         if total_new > 0:
                             await save_history(history)
                         
-                        logger.info(f"🔄 Найдено новых статей: {total_new}")
-                        await asyncio.sleep(3600)
+                        logger.info(f"🔄 Опубликовано новых статей: {total_new}")
+                        await asyncio.sleep(3600)  # Интервал 1 час
+                        
                     except Exception as e:
                         logger.error(f"💥 Ошибка цикла: {str(e)}")
-                        await asyncio.sleep(600)
+                        await asyncio.sleep(600)  # Повтор через 10 мин при ошибке
             else:
-                now = datetime.now()
-                next_run = now.replace(hour=8, minute=0, second=0)
-                if now.hour >= 22:
-                    next_run += timedelta(days=1)
+                # Расчет времени до следующего рабочего периода
+                next_run = now.replace(
+                    hour=8,
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                ) + timedelta(days=1 if now.hour >= 22 else 0)
+                
                 delay = (next_run - now).total_seconds()
-                logger.info(f"⏳ До следующей проверки: {delay//3600:.1f} ч.")
+                logger.info(f"⏳ Следующая проверка в {next_run.strftime('%d.%m %H:%M')}")
                 await asyncio.sleep(delay)
 
 async def main():
+    """Точка входа в приложение"""
     if await safe_start():
         await send_start_message()
         await main_loop()
