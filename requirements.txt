@@ -1,7 +1,7 @@
 python-telegram-bot==13.7
 requests==2.31.0
 beautifulsoup4==4.12.3
-APScheduler==3.10.1
+APScheduler==3.6.3  # Версия, совместимая с python-telegram-bot 13.x
 Flask==2.0.3
 Werkzeug==2.0.3
 pytz==2024.1
