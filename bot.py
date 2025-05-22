@@ -35,6 +35,7 @@ def load_posted_news():
         if not os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'w') as f:
                 json.dump([], f)
+            logger.info("Создан новый файл истории")
             return []
             
         with open(DATA_FILE, 'r') as f:
@@ -55,8 +56,10 @@ def get_crypto_news():
     url = "https://www.coindesk.com/"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.google.com/'
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/',
+        'DNT': '1'
     }
     
     try:
@@ -66,21 +69,14 @@ def get_crypto_news():
         soup = BeautifulSoup(response.text, 'lxml')
         news = []
         
-        # Актуальные селекторы для Coindesk 2024
-        articles = soup.select('div[data-testid="river"] article')
+        # Актуальные селекторы для мая 2024
+        articles = soup.select('div.article-card, div.article-cardstyles__AcTitle-sc-q1x8lc-1')
         
         for article in articles[:15]:
             try:
-                title_elem = article.find('h2', {'data-testid': 'headline'})
-                link_elem = article.find('a', href=True)
-                time_elem = article.find('time')
-                
-                if not all([title_elem, link_elem, time_elem]):
-                    continue
-                
-                title = title_elem.text.strip()
-                link = link_elem['href']
-                time = time_elem['datetime']
+                title = article.find('h2').text.strip()
+                link = article.find('a', href=True)['href']
+                time = article.find('time')['datetime']
                 
                 if not link.startswith('http'):
                     link = f'https://www.coindesk.com{link}'
@@ -96,7 +92,7 @@ def get_crypto_news():
                 logger.error(f"Ошибка парсинга: {str(e)}")
         return news
     except Exception as e:
-        logger.error(f"Ошибка получения новостей: {str(e)}")
+        logger.error(f"Ошибка запроса: {str(e)}")
         return []
 
 def post_news():
