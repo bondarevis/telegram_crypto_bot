@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from telegram import Bot
@@ -42,18 +42,17 @@ def get_crypto_news():
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
         news = []
-        for article in soup.find_all('article')[:10]:
+        for article in soup.find_all('article')[:15]:
             try:
                 title = article.find('h2').text.strip()
                 link = article.find('a')['href']
                 time = article.find('time')['datetime']
                 
-                # Проверка на относительные ссылки
                 if not link.startswith('http'):
                     link = f'https://www.coindesk.com{link}'
                     
@@ -63,7 +62,7 @@ def get_crypto_news():
                     'time': time
                 })
             except Exception as e:
-                logger.error(f"Ошибка парсинга статьи: {str(e)}")
+                logger.error(f"Ошибка парсинга: {str(e)}")
         return news
     except Exception as e:
         logger.error(f"Ошибка получения новостей: {str(e)}")
@@ -71,50 +70,42 @@ def get_crypto_news():
 
 def post_news():
     logger.info("Запуск процедуры публикации")
-    now = datetime.now()
+    now = datetime.now().astimezone()
     
-    # Проверка времени публикации
     if 8 <= now.hour <= 22:
-        bot = Bot(token=BOT_TOKEN)
-        posted = load_posted_news()
-        
-        # Получение новостей
-        news = get_crypto_news()
-        
-        for article in news:
-            if article['title'] not in posted:
-                # Форматирование сообщения
-                message = (
-                    f"📰 *{article['title']}*\n\n"
-                    f"🔗 [Читать статью]({article['link']})\n"
-                    f"🕒 {datetime.fromisoformat(article['time']).strftime('%d.%m.%Y %H:%M')}"
-                )
-                
-                try:
-                    # Публикация поста
+        try:
+            bot = Bot(token=BOT_TOKEN)
+            posted = load_posted_news()
+            news = get_crypto_news()
+            
+            for article in news:
+                if article['title'] not in posted:
+                    message = (
+                        f"📰 *{article['title']}*\n\n"
+                        f"🔗 [Читать статью]({article['link']})\n"
+                        f"🕒 {datetime.fromisoformat(article['time']).strftime('%d.%m.%Y %H:%M')}"
+                    )
+                    
                     bot.send_message(
                         chat_id=CHANNEL_ID,
                         text=message,
                         parse_mode='Markdown'
                     )
-                    logger.info(f"Опубликован пост: {article['title']}")
-                    
-                    # Сохранение в истории
+                    logger.info(f"Опубликовано: {article['title']}")
                     posted.append(article['title'])
                     save_posted_news(posted)
                     break
-                except Exception as e:
-                    logger.error(f"Ошибка публикации: {str(e)}")
-                    continue
+        except Exception as e:
+            logger.error(f"Критическая ошибка: {str(e)}")
 
 @app.route('/')
 def home():
-    return "Бот активен", 200
+    return "🤖 Бот активен | Crypto News Channel", 200
 
 def run_scheduler():
     scheduler = BlockingScheduler()
     
-    # Планировщик на каждый час с 08:00 до 22:00
+    # Расписание публикаций
     scheduler.add_job(
         post_news,
         trigger=CronTrigger(
@@ -124,16 +115,16 @@ def run_scheduler():
         )
     )
     
-    # Немедленный запуск при старте
+    # Первый запуск
     try:
         post_news()
     except Exception as e:
-        logger.error(f"Ошибка при стартовой публикации: {str(e)}")
+        logger.error(f"Стартовая ошибка: {str(e)}")
     
     scheduler.start()
 
 if __name__ == '__main__':
-    logger.info("Запуск приложения")
+    logger.info("🚀 Запуск приложения")
     from threading import Thread
     Thread(target=run_scheduler).start()
     app.run(host='0.0.0.0', port=10000)
